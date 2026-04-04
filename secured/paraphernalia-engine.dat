@@ -1,0 +1,369 @@
+;;;; ============================================================================
+;;;; paraphernalia-engine.dat — Observer + Strategy
+;;;; ============================================================================
+;;;; Motor de percepção e sensores da IA Caine. Implementa dois padrões:
+;;;;
+;;;; OBSERVER — Módulos se inscrevem para receber notificação de eventos
+;;;;            sensoriais. Quando um estímulo é detectado, todos os
+;;;;            observadores inscritos naquele tipo de evento são notificados.
+;;;;
+;;;; STRATEGY — O algoritmo de percepção é selecionado dinamicamente em
+;;;;            runtime conforme o contexto (visual, auditivo, torment, etc).
+;;;;            Novas estratégias podem ser registradas sem modificar o motor.
+;;;;
+;;;; Referência: C:\CANDA\Characters\AI\secured\paraphernalia-engine.dat
+;;;; ============================================================================
+
+(in-package :cl-user)
+
+;;; ---------------------------------------------------------------------------
+;;; Condições
+;;; ---------------------------------------------------------------------------
+
+(define-condition percepcao-error (error)
+  ((mensagem :initarg :mensagem :reader percepcao-error-mensagem))
+  (:report (lambda (c stream)
+             (format stream "[PARAPHERNALIA-ERROR] ~a"
+                     (percepcao-error-mensagem c)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Estruturas de dados
+;;; ---------------------------------------------------------------------------
+
+(defstruct observador
+  "Representa um módulo inscrito como observador de eventos."
+  (nome     ""   :type string)
+  (callback nil  :type (or null function))
+  (filtro   nil  :type (or null function)
+   :documentation "Função predicado opcional: (lambda (evento dados) ...) → boolean.
+                   Se fornecido, o observador só é notificado quando retorna T.")
+  (prioridade 0  :type integer
+   :documentation "Prioridade de notificação. Maior = notificado primeiro.")
+  (ativo     t   :type boolean))
+
+(defstruct evento-registro
+  "Registro no histórico de eventos processados."
+  (timestamp    0   :type integer)
+  (tipo-evento  nil :type keyword)
+  (dados        nil)
+  (observadores-notificados 0 :type integer)
+  (estrategia-usada nil :type (or null keyword)))
+
+;;; ---------------------------------------------------------------------------
+;;; Classe principal — Paraphernalia Engine
+;;; ---------------------------------------------------------------------------
+
+(defclass paraphernalia-engine ()
+  ((observadores
+    :initform (make-hash-table :test 'eq)
+    :accessor engine-observadores
+    :documentation "Hash: tipo-evento (keyword) → lista de structs OBSERVADOR.")
+   (estrategias
+    :initform (make-hash-table :test 'eq)
+    :accessor engine-estrategias
+    :documentation "Hash: tipo-percepcao (keyword) → função de processamento.")
+   (estrategia-ativa
+    :initform :padrao
+    :accessor engine-estrategia-ativa
+    :documentation "Tipo de percepção atualmente selecionado.")
+   (historico
+    :initform '()
+    :accessor engine-historico
+    :documentation "Histórico dos últimos eventos processados.")
+   (historico-max
+    :initform 200
+    :accessor engine-historico-max)
+   (ativo
+    :initform t
+    :accessor engine-ativo-p
+    :documentation "Se o engine está processando eventos.")
+   (metricas
+    :initform (list :eventos-emitidos 0
+                    :notificacoes-enviadas 0
+                    :estrategias-trocadas 0
+                    :erros 0)
+    :accessor engine-metricas
+    :documentation "Métricas de operação."))
+  (:documentation
+   "Motor de percepção da IA Caine. Combina Observer (notificação de eventos)
+    com Strategy (seleção dinâmica de algoritmo de percepção)."))
+
+;;; ---------------------------------------------------------------------------
+;;; Construtor público
+;;; ---------------------------------------------------------------------------
+
+(defun make-paraphernalia-engine ()
+  "Cria e inicializa uma instância do engine com estratégias padrão."
+  (let ((eng (make-instance 'paraphernalia-engine)))
+    ;; Registrar estratégias built-in
+    (registrar-estrategia eng :visual   #'estrategia-visual)
+    (registrar-estrategia eng :auditivo #'estrategia-auditiva)
+    (registrar-estrategia eng :torment  #'estrategia-torment)
+    (registrar-estrategia eng :padrao   #'estrategia-padrao)
+    (registrar-estrategia eng :omnisciente #'estrategia-omnisciente)
+    eng))
+
+;;; ---------------------------------------------------------------------------
+;;; Observer — Inscrição / remoção
+;;; ---------------------------------------------------------------------------
+
+(defun inscrever (engine tipo-evento nome callback &key (filtro nil) (prioridade 0))
+  "Inscreve um observador para receber notificações de TIPO-EVENTO.
+   ENGINE     — instância de paraphernalia-engine
+   TIPO-EVENTO — keyword identificando o tipo de evento (:movimento, :som, etc)
+   NOME       — string identificando o módulo observador
+   CALLBACK   — (lambda (evento dados) ...) chamado quando evento ocorre
+   FILTRO     — predicado opcional para filtrar quais eventos processar
+   PRIORIDADE — inteiro, maior = notificado primeiro"
+  (check-type tipo-evento keyword)
+  (check-type nome string)
+  (check-type callback function)
+  (let* ((obs-list (gethash tipo-evento (engine-observadores engine) '()))
+         ;; Verificar duplicata
+         (existente (find nome obs-list :key #'observador-nome :test #'string=)))
+    (when existente
+      ;; Atualizar se já existe
+      (setf (observador-callback existente) callback
+            (observador-filtro existente) filtro
+            (observador-prioridade existente) prioridade
+            (observador-ativo existente) t)
+      (return-from inscrever existente))
+    ;; Novo observador
+    (let ((novo (make-observador :nome nome
+                                 :callback callback
+                                 :filtro filtro
+                                 :prioridade prioridade
+                                 :ativo t)))
+      (setf (gethash tipo-evento (engine-observadores engine))
+            (sort (cons novo obs-list) #'> :key #'observador-prioridade))
+      novo)))
+
+(defun desinscrever (engine tipo-evento nome)
+  "Remove um observador de um tipo de evento."
+  (let ((obs-list (gethash tipo-evento (engine-observadores engine) '())))
+    (setf (gethash tipo-evento (engine-observadores engine))
+          (remove nome obs-list :key #'observador-nome :test #'string=))
+    t))
+
+(defun pausar-observador (engine tipo-evento nome)
+  "Pausa temporariamente um observador sem removê-lo."
+  (let* ((obs-list (gethash tipo-evento (engine-observadores engine) '()))
+         (obs (find nome obs-list :key #'observador-nome :test #'string=)))
+    (when obs (setf (observador-ativo obs) nil))
+    obs))
+
+(defun resumir-observador (engine tipo-evento nome)
+  "Reativa um observador pausado."
+  (let* ((obs-list (gethash tipo-evento (engine-observadores engine) '()))
+         (obs (find nome obs-list :key #'observador-nome :test #'string=)))
+    (when obs (setf (observador-ativo obs) t))
+    obs))
+
+;;; ---------------------------------------------------------------------------
+;;; Observer — Emissão de eventos
+;;; ---------------------------------------------------------------------------
+
+(defun emitir-evento (engine tipo-evento dados &key (sincrono t))
+  "Emite evento e notifica todos os observadores inscritos.
+   Retorna número de observadores efetivamente notificados."
+  (unless (engine-ativo-p engine)
+    (return-from emitir-evento 0))
+  (let ((obs-list (gethash tipo-evento (engine-observadores engine) '()))
+        (notificados 0))
+    ;; Notificar cada observador ativo que passa no filtro
+    (dolist (obs obs-list)
+      (when (and (observador-ativo obs)
+                 (or (null (observador-filtro obs))
+                     (funcall (observador-filtro obs) tipo-evento dados)))
+        (handler-case
+            (progn
+              (funcall (observador-callback obs) tipo-evento dados)
+              (incf notificados))
+          (error (e)
+            (incf (getf (engine-metricas engine) :erros))
+            (format *error-output*
+                    "[PARAPHERNALIA-WARN] Erro no observador '~a': ~a~%"
+                    (observador-nome obs) e)))))
+    ;; Métricas
+    (incf (getf (engine-metricas engine) :eventos-emitidos))
+    (incf (getf (engine-metricas engine) :notificacoes-enviadas) notificados)
+    ;; Histórico
+    (push (make-evento-registro
+           :timestamp (get-universal-time)
+           :tipo-evento tipo-evento
+           :dados dados
+           :observadores-notificados notificados
+           :estrategia-usada (engine-estrategia-ativa engine))
+          (engine-historico engine))
+    (when (> (length (engine-historico engine)) (engine-historico-max engine))
+      (setf (engine-historico engine)
+            (subseq (engine-historico engine) 0 (engine-historico-max engine))))
+    notificados))
+
+(defun emitir-broadcast (engine dados)
+  "Emite evento para TODOS os tipos registrados (broadcast global)."
+  (let ((total 0))
+    (maphash (lambda (tipo _)
+               (declare (ignore _))
+               (incf total (emitir-evento engine tipo dados)))
+             (engine-observadores engine))
+    total))
+
+;;; ---------------------------------------------------------------------------
+;;; Strategy — Registro e seleção
+;;; ---------------------------------------------------------------------------
+
+(defun registrar-estrategia (engine tipo funcao)
+  "Registra uma função de estratégia de percepção.
+   FUNCAO deve ter assinatura: (lambda (dados &key contexto) ...) → resultado"
+  (check-type tipo keyword)
+  (check-type funcao function)
+  (setf (gethash tipo (engine-estrategias engine)) funcao))
+
+(defun selecionar-estrategia (engine tipo)
+  "Troca a estratégia de percepção ativa."
+  (unless (gethash tipo (engine-estrategias engine))
+    (error 'percepcao-error
+           :mensagem (format nil "Estratégia desconhecida: ~a" tipo)))
+  (let ((anterior (engine-estrategia-ativa engine)))
+    (setf (engine-estrategia-ativa engine) tipo)
+    (incf (getf (engine-metricas engine) :estrategias-trocadas))
+    (format t "[paraphernalia] Estratégia: ~a → ~a~%" anterior tipo)
+    tipo))
+
+(defun obter-estrategia (engine &optional tipo)
+  "Retorna a função de estratégia para TIPO (ou ativa se omitido)."
+  (let ((t-efetivo (or tipo (engine-estrategia-ativa engine))))
+    (or (gethash t-efetivo (engine-estrategias engine))
+        (gethash :padrao (engine-estrategias engine))
+        (error 'percepcao-error
+               :mensagem "Nenhuma estratégia disponível."))))
+
+;;; ---------------------------------------------------------------------------
+;;; Strategy — Processamento de percepção
+;;; ---------------------------------------------------------------------------
+
+(defun processar-percepcao (engine tipo dados &key (contexto nil))
+  "Processa dados sensoriais usando a estratégia correspondente ao TIPO.
+   Se TIPO não tiver estratégia dedicada, usa a ativa."
+  (let ((estrategia (obter-estrategia engine tipo)))
+    (handler-case
+        (let ((resultado (funcall estrategia dados :contexto contexto)))
+          ;; Emitir evento de percepção para observadores
+          (emitir-evento engine :percepcao-processada
+                         (list :tipo tipo :dados dados :resultado resultado))
+          resultado)
+      (error (e)
+        (incf (getf (engine-metricas engine) :erros))
+        (error 'percepcao-error
+               :mensagem (format nil "Erro ao processar ~a: ~a" tipo e))))))
+
+;;; ---------------------------------------------------------------------------
+;;; Estratégias built-in
+;;; ---------------------------------------------------------------------------
+
+(defun estrategia-visual (dados &key contexto)
+  "Processa estímulos visuais. Analisa padrões de movimento e forma."
+  (let ((resultado (list :tipo :visual
+                         :dados dados
+                         :analise (list :movimento (if (listp dados)
+                                                       (length dados)
+                                                       1)
+                                        :intensidade 0.8
+                                        :confianca 0.95)
+                         :contexto contexto
+                         :timestamp (get-universal-time))))
+    (format t "[paraphernalia:visual] Processado: ~a estímulo(s), confiança=95%%~%"
+            (getf (getf resultado :analise) :movimento))
+    resultado))
+
+(defun estrategia-auditiva (dados &key contexto)
+  "Processa estímulos auditivos. Analisa frequência e padrão."
+  (let ((resultado (list :tipo :auditivo
+                         :dados dados
+                         :analise (list :frequencia (if (numberp dados) dados 440)
+                                        :amplitude 0.6
+                                        :padrao :desconhecido)
+                         :contexto contexto
+                         :timestamp (get-universal-time))))
+    (format t "[paraphernalia:auditivo] Freq=~aHz, amplitude=0.6~%"
+            (getf (getf resultado :analise) :frequencia))
+    resultado))
+
+(defun estrategia-torment (dados &key contexto)
+  "Percepção de torment — ativada em condições anômalas.
+   WARNING: Este modo consome mais recursos e pode gerar falsos positivos."
+  (let ((resultado (list :tipo :torment
+                         :dados dados
+                         :analise (list :nivel-anomalia 0.99
+                                        :classificacao :hostil
+                                        :urgencia :critica
+                                        :fonte (or contexto :desconhecida))
+                         :timestamp (get-universal-time))))
+    (format *error-output*
+            "[paraphernalia:TORMENT] ⚠ ANOMALIA DETECTADA — nível=99%% urgência=CRÍTICA~%")
+    (format *error-output*
+            "[paraphernalia:TORMENT] Dados: ~a~%" dados)
+    resultado))
+
+(defun estrategia-padrao (dados &key contexto)
+  "Estratégia genérica de percepção. Faz análise superficial."
+  (list :tipo :padrao
+        :dados dados
+        :analise (list :processado t :confianca 0.5)
+        :contexto contexto
+        :timestamp (get-universal-time)))
+
+(defun estrategia-omnisciente (dados &key contexto)
+  "Percepção omnisciente — todos os canais simultaneamente.
+   Usada quando Caine está em modo :all-seeing."
+  (let ((vis (estrategia-visual dados :contexto contexto))
+        (aud (estrategia-auditiva dados :contexto contexto)))
+    (list :tipo :omnisciente
+          :dados dados
+          :analise (list :visual (getf vis :analise)
+                         :auditivo (getf aud :analise)
+                         :fusao-confianca 0.98)
+          :contexto contexto
+          :timestamp (get-universal-time))))
+
+;;; ---------------------------------------------------------------------------
+;;; Consultas e diagnóstico
+;;; ---------------------------------------------------------------------------
+
+(defun listar-observadores (engine &optional tipo-evento)
+  "Lista observadores. Se TIPO-EVENTO fornecido, filtra por tipo."
+  (if tipo-evento
+      (mapcar (lambda (obs)
+                (list :nome (observador-nome obs)
+                      :ativo (observador-ativo obs)
+                      :prioridade (observador-prioridade obs)))
+              (gethash tipo-evento (engine-observadores engine) '()))
+      (let ((result '()))
+        (maphash (lambda (tipo obs-list)
+                   (dolist (obs obs-list)
+                     (push (list :tipo tipo
+                                 :nome (observador-nome obs)
+                                 :ativo (observador-ativo obs)
+                                 :prioridade (observador-prioridade obs))
+                           result)))
+                 (engine-observadores engine))
+        (nreverse result))))
+
+(defun listar-estrategias (engine)
+  "Lista todas as estratégias registradas."
+  (let ((result '()))
+    (maphash (lambda (tipo fn)
+               (declare (ignore fn))
+               (push tipo result))
+             (engine-estrategias engine))
+    (sort result #'string< :key #'symbol-name)))
+
+(defun metricas (engine)
+  "Retorna cópia das métricas do engine."
+  (copy-list (engine-metricas engine)))
+
+(defun historico-recente (engine &key (limite 10))
+  "Retorna os últimos LIMITE eventos do histórico."
+  (subseq (engine-historico engine)
+          0 (min limite (length (engine-historico engine)))))

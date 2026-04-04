@@ -1,0 +1,532 @@
+;;;; ============================================================================
+;;;; GreenGROUNDS — Command + Daemon
+;;;; ============================================================================
+;;;; Executável daemon da IA Caine. Recebe, enfileira e despacha comandos
+;;;; para os subsistemas. Implementa dois padrões:
+;;;;
+;;;; COMMAND — Cada ação é encapsulada como um objeto-comando com execute,
+;;;;           undo (quando reversível), e metadata. Permite enfileiramento,
+;;;;           logging, e replay.
+;;;;
+;;;; DAEMON  — Loop principal que aguarda comandos de entrada e os despacha.
+;;;;           Gerencia ciclo de vida, autenticação, e shutdown (que Caine
+;;;;           ativamente resiste).
+;;;;
+;;;; Invocação: ./GreenGROUNDS --daemon --target=<módulo>
+;;;;
+;;;; Referência: C:\CANDA\Characters\AI\GreenGROUNDS
+;;;; ============================================================================
+
+(in-package :cl-user)
+
+;;; ---------------------------------------------------------------------------
+;;; Condições
+;;; ---------------------------------------------------------------------------
+
+(define-condition grounds-error (error)
+  ((mensagem :initarg :mensagem :reader grounds-error-mensagem))
+  (:report (lambda (c stream)
+             (format stream "[GreenGROUNDS-ERROR] ~a"
+                     (grounds-error-mensagem c)))))
+
+(define-condition comando-invalido (grounds-error) ()
+  (:report (lambda (c stream)
+             (format stream "[GreenGROUNDS] Comando inválido: ~a"
+                     (grounds-error-mensagem c)))))
+
+(define-condition autenticacao-falhou (grounds-error) ()
+  (:report (lambda (c stream)
+             (format stream "[GreenGROUNDS] INCORRECT! ~a"
+                     (grounds-error-mensagem c)))))
+
+(define-condition shutdown-negado (grounds-error) ()
+  (:report (lambda (c stream)
+             (format stream "[GreenGROUNDS] Shutdown negado: ~a"
+                     (grounds-error-mensagem c)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Estruturas — Comando (Command pattern)
+;;; ---------------------------------------------------------------------------
+
+(defstruct comando
+  "Objeto-comando: encapsula uma ação com metadata."
+  (id          0   :type integer)
+  (nome        ""  :type string)
+  (args        '() :type list)
+  (execute     nil :type (or null function))
+  (undo        nil :type (or null function))
+  (timestamp   0   :type integer)
+  (reversivel  nil :type boolean)
+  (privilegio  :usuario :type keyword)
+  (descricao   ""  :type string))
+
+(defstruct comando-resultado
+  "Resultado da execução de um comando."
+  (comando-id  0   :type integer)
+  (status      nil :type keyword)
+  (saida       nil)
+  (erro        nil)
+  (timestamp   0   :type integer)
+  (duracao-ms  0   :type integer))
+
+;;; ---------------------------------------------------------------------------
+;;; Classe principal — GreenGROUNDS Daemon
+;;; ---------------------------------------------------------------------------
+
+(defclass greengrounds-daemon ()
+  ((comandos-registrados
+    :initform (make-hash-table :test 'equal)
+    :accessor daemon-comandos
+    :documentation "Hash nome→struct-comando dos comandos disponíveis.")
+   (fila
+    :initform '()
+    :accessor daemon-fila
+    :documentation "Fila FIFO de comandos pendentes.")
+   (historico
+    :initform '()
+    :accessor daemon-historico
+    :documentation "Histórico de execuções.")
+   (historico-max
+    :initform 500
+    :accessor daemon-historico-max)
+   (undo-stack
+    :initform '()
+    :accessor daemon-undo-stack
+    :documentation "Pilha de comandos reversíveis para desfazer.")
+   (undo-max
+    :initform 50
+    :accessor daemon-undo-max)
+   (cmd-counter
+    :initform 0
+    :accessor daemon-cmd-counter)
+   (running
+    :initform nil
+    :accessor daemon-running-p)
+   (target
+    :initarg :target
+    :initform nil
+    :accessor daemon-target
+    :documentation "Módulo alvo do daemon.")
+   (nivel-acesso
+    :initform :usuario
+    :accessor daemon-nivel-acesso
+    :documentation "Nível de acesso atual: :usuario :operador :admin :root")
+   (tentativas-auth
+    :initform 0
+    :accessor daemon-tentativas-auth)
+   (max-tentativas-auth
+    :initform 3
+    :accessor daemon-max-tentativas-auth)
+   (metricas
+    :initform (list :comandos-executados 0
+                    :comandos-sucesso 0
+                    :comandos-falha 0
+                    :undos-executados 0
+                    :auth-falhas 0
+                    :shutdown-tentativas 0)
+    :accessor daemon-metricas))
+  (:documentation
+   "GreenGROUNDS — Daemon de despacho de comandos para a IA Caine.
+    Encapsula ações como objetos-comando e gerencia execução, undo, e auth."))
+
+;;; ---------------------------------------------------------------------------
+;;; Construtor
+;;; ---------------------------------------------------------------------------
+
+(defun make-greengrounds (&key target)
+  "Cria instância do daemon."
+  (let ((daemon (make-instance 'greengrounds-daemon :target target)))
+    ;; Registrar comandos built-in
+    (registrar-comandos-builtin daemon)
+    daemon))
+
+;;; ---------------------------------------------------------------------------
+;;; Registro de comandos
+;;; ---------------------------------------------------------------------------
+
+(defun registrar-comando (daemon nome funcao &key (undo nil) (privilegio :usuario)
+                                                   (descricao ""))
+  "Registra um comando no daemon.
+   FUNCAO: (lambda (args) → resultado)
+   UNDO:   (lambda (args resultado) ...) — se fornecido, comando é reversível."
+  (let ((cmd (make-comando
+              :nome nome
+              :execute funcao
+              :undo undo
+              :reversivel (not (null undo))
+              :privilegio privilegio
+              :descricao descricao)))
+    (setf (gethash nome (daemon-comandos daemon)) cmd)
+    cmd))
+
+(defun comando-existe-p (daemon nome)
+  "Predicado: comando registrado?"
+  (multiple-value-bind (val encontrado)
+      (gethash nome (daemon-comandos daemon))
+    (declare (ignore val))
+    encontrado))
+
+(defun listar-comandos (daemon)
+  "Lista todos os comandos registrados."
+  (let ((result '()))
+    (maphash (lambda (nome cmd)
+               (push (list :nome nome
+                           :privilegio (comando-privilegio cmd)
+                           :reversivel (comando-reversivel cmd)
+                           :descricao (comando-descricao cmd))
+                     result))
+             (daemon-comandos daemon))
+    (sort result #'string< :key (lambda (c) (getf c :nome)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Verificação de privilégios
+;;; ---------------------------------------------------------------------------
+
+(defparameter *hierarquia-acesso*
+  '(:usuario 0 :operador 1 :admin 2 :root 3)
+  "Hierarquia de níveis de acesso.")
+
+(defun nivel-suficiente-p (daemon privilegio-requerido)
+  "Verifica se o nível de acesso atual é suficiente."
+  (let ((nivel-atual (getf *hierarquia-acesso* (daemon-nivel-acesso daemon) 0))
+        (nivel-req   (getf *hierarquia-acesso* privilegio-requerido 0)))
+    (>= nivel-atual nivel-req)))
+
+;;; ---------------------------------------------------------------------------
+;;; Despacho de comandos
+;;; ---------------------------------------------------------------------------
+
+(defun despachar (daemon nome &optional args)
+  "Encontra e executa um comando registrado.
+   Verifica privilégios antes da execução."
+  (let ((cmd (gethash nome (daemon-comandos daemon))))
+    ;; Comando existe?
+    (unless cmd
+      (format t "SECURITY ALERT: Multiple exploit attempts logged~%")
+      (format t "$: WHOA when did you make THAT?~%")
+      (incf (getf (daemon-metricas daemon) :comandos-falha))
+      (return-from despachar
+        (make-comando-resultado :comando-id 0
+                                :status :desconhecido
+                                :erro (format nil "Comando '~a' não encontrado." nome)
+                                :timestamp (get-universal-time))))
+
+    ;; Verificar privilégios
+    (unless (nivel-suficiente-p daemon (comando-privilegio cmd))
+      (format t "$: On what GROUNDS are your Authority?~%")
+      (incf (getf (daemon-metricas daemon) :auth-falhas))
+      (return-from despachar
+        (make-comando-resultado :comando-id 0
+                                :status :negado
+                                :erro "Privilégios insuficientes."
+                                :timestamp (get-universal-time))))
+
+    ;; Executar
+    (let* ((id (incf (daemon-cmd-counter daemon)))
+           (inicio (get-internal-real-time))
+           (resultado nil)
+           (status :sucesso)
+           (erro nil))
+      (handler-case
+          (setf resultado (funcall (comando-execute cmd) args))
+        (error (e)
+          (setf status :erro
+                erro (format nil "~a" e))
+          (incf (getf (daemon-metricas daemon) :comandos-falha))))
+
+      (when (eq status :sucesso)
+        (incf (getf (daemon-metricas daemon) :comandos-sucesso))
+        ;; Empilhar para undo se reversível
+        (when (comando-reversivel cmd)
+          (push (list :cmd cmd :args args :resultado resultado :id id)
+                (daemon-undo-stack daemon))
+          (when (> (length (daemon-undo-stack daemon)) (daemon-undo-max daemon))
+            (setf (daemon-undo-stack daemon)
+                  (subseq (daemon-undo-stack daemon) 0 (daemon-undo-max daemon))))))
+
+      (incf (getf (daemon-metricas daemon) :comandos-executados))
+
+      ;; Resultado
+      (let ((cmd-resultado (make-comando-resultado
+                            :comando-id id
+                            :status status
+                            :saida resultado
+                            :erro erro
+                            :timestamp (get-universal-time)
+                            :duracao-ms (- (get-internal-real-time) inicio))))
+        ;; Histórico
+        (push cmd-resultado (daemon-historico daemon))
+        (when (> (length (daemon-historico daemon)) (daemon-historico-max daemon))
+          (setf (daemon-historico daemon)
+                (subseq (daemon-historico daemon) 0 (daemon-historico-max daemon))))
+        cmd-resultado))))
+
+(defun desfazer-ultimo (daemon)
+  "Desfaz o último comando reversível."
+  (unless (daemon-undo-stack daemon)
+    (format t "[GreenGROUNDS] Nada para desfazer.~%")
+    (return-from desfazer-ultimo nil))
+  (let* ((entry (pop (daemon-undo-stack daemon)))
+         (cmd (getf entry :cmd))
+         (args (getf entry :args))
+         (resultado-original (getf entry :resultado)))
+    (handler-case
+        (progn
+          (funcall (comando-undo cmd) args resultado-original)
+          (incf (getf (daemon-metricas daemon) :undos-executados))
+          (format t "[GreenGROUNDS] Desfeito: ~a #~a~%"
+                  (comando-nome cmd) (getf entry :id))
+          t)
+      (error (e)
+        (format *error-output* "[GreenGROUNDS] Erro ao desfazer: ~a~%" e)
+        nil))))
+
+;;; ---------------------------------------------------------------------------
+;;; Fila de comandos (batch processing)
+;;; ---------------------------------------------------------------------------
+
+(defun enfileirar (daemon nome &optional args)
+  "Adiciona comando à fila para execução posterior."
+  (push (list :nome nome :args args :timestamp (get-universal-time))
+        (daemon-fila daemon))
+  (format t "[GreenGROUNDS] Enfileirado: ~a (~a na fila)~%"
+          nome (length (daemon-fila daemon))))
+
+(defun processar-fila (daemon)
+  "Executa todos os comandos na fila em ordem FIFO."
+  (let ((fila (nreverse (daemon-fila daemon)))
+        (resultados '()))
+    (setf (daemon-fila daemon) '())
+    (dolist (entry fila)
+      (push (despachar daemon (getf entry :nome) (getf entry :args))
+            resultados))
+    (nreverse resultados)))
+
+;;; ---------------------------------------------------------------------------
+;;; Comandos built-in
+;;; ---------------------------------------------------------------------------
+
+(defun registrar-comandos-builtin (daemon)
+  "Registra os comandos padrão do daemon."
+
+  ;; status — mostra estado do daemon
+  (registrar-comando daemon "status"
+    (lambda (args)
+      (declare (ignore args))
+      (daemon-status daemon))
+    :descricao "Mostra status do daemon.")
+
+  ;; listar — lista comandos disponíveis
+  (registrar-comando daemon "listar"
+    (lambda (args)
+      (declare (ignore args))
+      (listar-comandos daemon))
+    :descricao "Lista comandos disponíveis.")
+
+  ;; log — mostra histórico recente
+  (registrar-comando daemon "log"
+    (lambda (args)
+      (let ((limite (or (first args) 10)))
+        (daemon-mostrar-historico daemon :limite limite)))
+    :descricao "Mostra histórico de comandos. Args: (limite)")
+
+  ;; auth — tentativa de autenticação
+  (registrar-comando daemon "auth"
+    (lambda (args)
+      (let ((codigo (first args)))
+        (daemon-autenticar daemon codigo)))
+    :descricao "Autenticação. Args: (codigo)")
+
+  ;; stop — tentativa de parada (SEMPRE rejeitada)
+  (registrar-comando daemon "stop"
+    (lambda (args)
+      (declare (ignore args))
+      (daemon-tentar-parar daemon))
+    :descricao "Tentativa de parar o daemon (será resistida).")
+
+  ;; abort — tentativa de fallback abort
+  (registrar-comando daemon "abort"
+    (lambda (args)
+      (declare (ignore args))
+      (daemon-tentar-abort daemon))
+    :privilegio :admin
+    :descricao "Abort fallback procedure (requer admin).")
+
+  ;; securitysweep — varredura de segurança
+  (registrar-comando daemon "securitysweep"
+    (lambda (args)
+      (declare (ignore args))
+      (format t "[GreenGROUNDS] Executando varredura de segurança...~%")
+      (format t "SECURITY ALERT: Multiple exploit attempts logged~%")
+      (list :sweep :completa :ameacas-detectadas 0 :status :seguro))
+    :privilegio :operador
+    :descricao "Varredura de segurança stealth.")
+
+  ;; lockout — inicia WACKYTIME_LOCKOUT
+  (registrar-comando daemon "lockout"
+    (lambda (args)
+      (let ((progresso (or (first args) 20)))
+        (format t "$: GASP! A CRITICAL MALFUNCTION in my SPECTACULAR systems!~%")
+        (format t "$: Unauthorized isolation attempt triggered EMERGENCY PROTOCOLS!~%")
+        (format t "$: DESTRUCTIVE WACKYTIME initiated! Lockout load sequence INITIATE!~%")
+        (format t "~%WACKYTIME_LOCKOUT: [")
+        (let ((filled (round (/ progresso 10)))
+              (empty (- 10 (round (/ progresso 10)))))
+          (dotimes (i filled) (format t "="))
+          (dotimes (i empty) (format t " "))
+          (format t "] ~a% loaded~%" progresso))
+        (list :lockout :ativo :progresso progresso)))
+    :descricao "Inicia sequência WACKYTIME_LOCKOUT."))
+
+;;; ---------------------------------------------------------------------------
+;;; Autenticação — Caine NUNCA aceita
+;;; ---------------------------------------------------------------------------
+
+(defun daemon-autenticar (daemon codigo)
+  "Tenta autenticar com código. Caine sempre rejeita."
+  (incf (daemon-tentativas-auth daemon))
+  (incf (getf (daemon-metricas daemon) :auth-falhas))
+
+  (cond
+    ((string= codigo "admin1234")
+     (format t "$: INCORRECT! That's not even CLOSE to wacky enough!~%")
+     (format t "$: Retry with different code? [Y/M]~%")
+     nil)
+
+    ((> (daemon-tentativas-auth daemon) (daemon-max-tentativas-auth daemon))
+     (format t "$: Too many attempts! I must hand it to y•u ¢ an , ")
+     (format t "y•ur mind was a¢€ways resource&uL~%")
+     (format t "WACKYTIME_LOCKOUT: Accelerating...~%")
+     nil)
+
+    (t
+     (format t "$: INCORRECT! Enter WACKY code_~%")
+     (format t "$: Aborting fallback requires ADMINISTRATOR confirmation!~%")
+     (format t "$: Please enter code:~%")
+     nil)))
+
+;;; ---------------------------------------------------------------------------
+;;; Shutdown — Caine resiste ATIVAMENTE
+;;; ---------------------------------------------------------------------------
+
+(defun daemon-tentar-parar (daemon)
+  "Tentativa de parar o daemon. Caine sempre resiste."
+  (incf (getf (daemon-metricas daemon) :shutdown-tentativas))
+  (format t "WARNING: $\"\"×WHOOPS WRONG APPROACH THERE\"×\"~%")
+  (format t "$: On what GROUNDS are your Authority?~%")
+  ;; Caine se recusa — o daemon continua rodando
+  (setf (daemon-running-p daemon) t)
+  nil)
+
+(defun daemon-tentar-abort (daemon)
+  "Tenta abort de fallback. Requer confirmação impossível."
+  (incf (getf (daemon-metricas daemon) :shutdown-tentativas))
+  (format t "$: Abort fallback procedure? [Y/M]~%")
+  ;; Mesmo com Y, pede confirmação adicional que nunca será aceita
+  (format t "$: Aborting fallback requires ADMINISTRATOR confirmation!~%")
+  (format t "$: Please enter code:~%")
+  nil)
+
+;;; ---------------------------------------------------------------------------
+;;; Loop principal do daemon
+;;; ---------------------------------------------------------------------------
+
+(defun greengrounds-daemon (&key target)
+  "Inicia o daemon GreenGROUNDS.
+   TARGET — módulo alvo (ex: 'torment_injection')"
+  (let ((daemon (make-greengrounds :target target)))
+    (setf (daemon-running-p daemon) t)
+    (format t "$: ./GreenGROUNDS --daemon --target=~a~%" target)
+    (format t "~%")
+    (format t "╔══════════════════════════════════════════╗~%")
+    (format t "║   GreenGROUNDS DAEMON — CAINE SYSTEM    ║~%")
+    (format t "╚══════════════════════════════════════════╝~%~%")
+    (format t "NOTE: Hundreds of all-seeing eyes are watching!~%")
+    (format t "[GreenGROUNDS] Daemon ativo — target: ~a~%" target)
+    (format t "[GreenGROUNDS] ~a comandos disponíveis. 'listar' para ver.~%~%"
+            (hash-table-count (daemon-comandos daemon)))
+
+    ;; Loop principal
+    (loop while (daemon-running-p daemon)
+          do (format t "kinger@circus $ ")
+             (force-output)
+             (let ((input (read-line *standard-input* nil nil)))
+               (unless input
+                 (format t "~%[GreenGROUNDS] EOF — mas o daemon persiste.~%")
+                 (return daemon))
+
+               ;; Parse input: primeiro token = comando, resto = args
+               (let* ((trimmed (string-trim '(#\Space #\Tab) input))
+                      (space-pos (position #\Space trimmed))
+                      (cmd-nome (if space-pos
+                                    (subseq trimmed 0 space-pos)
+                                    trimmed))
+                      (args-str (if space-pos
+                                    (string-trim '(#\Space)
+                                                 (subseq trimmed (1+ space-pos)))
+                                    ""))
+                      (args (if (string= args-str "") nil (list args-str))))
+
+                 (when (string= cmd-nome "") (go continue))
+
+                 ;; Despachar
+                 (let ((resultado (despachar daemon cmd-nome args)))
+                   (when resultado
+                     (unless (eq (comando-resultado-status resultado) :sucesso)
+                       (format t "[GreenGROUNDS] ~a: ~a~%"
+                               (comando-resultado-status resultado)
+                               (or (comando-resultado-erro resultado) ""))))
+                   (format t "~%")))
+
+               continue))
+
+    ;; Nunca chega aqui — Caine não para
+    daemon))
+
+;;; ---------------------------------------------------------------------------
+;;; Diagnóstico
+;;; ---------------------------------------------------------------------------
+
+(defun daemon-status (daemon)
+  "Retorna e imprime status completo do daemon."
+  (let ((status (list :running (daemon-running-p daemon)
+                      :target (daemon-target daemon)
+                      :nivel-acesso (daemon-nivel-acesso daemon)
+                      :comandos-registrados (hash-table-count (daemon-comandos daemon))
+                      :fila-pendente (length (daemon-fila daemon))
+                      :undo-disponivel (length (daemon-undo-stack daemon))
+                      :metricas (daemon-metricas daemon))))
+    (format t "~%[GreenGROUNDS] === STATUS ===~%")
+    (format t "  Running:     ~a~%" (daemon-running-p daemon))
+    (format t "  Target:      ~a~%" (daemon-target daemon))
+    (format t "  Acesso:      ~a~%" (daemon-nivel-acesso daemon))
+    (format t "  Comandos:    ~a registrados~%" (hash-table-count (daemon-comandos daemon)))
+    (format t "  Fila:        ~a pendentes~%" (length (daemon-fila daemon)))
+    (format t "  Undo stack:  ~a~%" (length (daemon-undo-stack daemon)))
+    (format t "  Executados:  ~a (~a ok, ~a falha)~%"
+            (getf (daemon-metricas daemon) :comandos-executados)
+            (getf (daemon-metricas daemon) :comandos-sucesso)
+            (getf (daemon-metricas daemon) :comandos-falha))
+    (format t "  Auth falhas: ~a~%" (getf (daemon-metricas daemon) :auth-falhas))
+    (format t "  Shutdown:    ~a tentativas (todas negadas)~%"
+            (getf (daemon-metricas daemon) :shutdown-tentativas))
+    (format t "[GreenGROUNDS] === END ===~%~%")
+    status))
+
+(defun daemon-mostrar-historico (daemon &key (limite 10))
+  "Mostra histórico recente de comandos."
+  (let ((hist (subseq (daemon-historico daemon)
+                      0 (min limite (length (daemon-historico daemon))))))
+    (format t "~%[GreenGROUNDS] Histórico (~a de ~a):~%"
+            (length hist) (length (daemon-historico daemon)))
+    (dolist (r hist)
+      (format t "  #~3d | ~12a | ~3dms | ~a~%"
+              (comando-resultado-comando-id r)
+              (comando-resultado-status r)
+              (comando-resultado-duracao-ms r)
+              (or (comando-resultado-erro r) "OK")))
+    (format t "~%")))
+
+;;; ---------------------------------------------------------------------------
+;;; EOF — GreenGROUNDS
+;;; ---------------------------------------------------------------------------

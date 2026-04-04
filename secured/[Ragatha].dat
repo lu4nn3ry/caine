@@ -1,0 +1,824 @@
+;;;; ============================================================================
+;;;; [Ragatha].dat — Mind File / Brainscan Humano Digitalizado
+;;;; ============================================================================
+;;;; Arquivo de consciência digitalizada de uma mulher humana conhecida no
+;;;; circo como "Ragatha". Antes de ser digitalizada, era uma pessoa real:
+;;;;
+;;;; DADOS PESSOAIS PRÉ-CIRCO:
+;;;; - Mulher, 30 anos (nascida ~1978), família rural abastada
+;;;; - Nome humano original: Emmy [APAGADO POR CAINE NA DIGITALIZAÇÃO]
+;;;; - Profissão: Corretora de imóveis
+;;;; - Mãe abusiva, manipuladora e controladora (principal trauma)
+;;;; - Pai: dados insuficientes / não mencionado
+;;;; - Amava cavalos, criação de aves, tinha afinidade com animais
+;;;; - Habilidades: softball, violoncelo, equitação
+;;;; - Bebida favorita: cosmopolitans
+;;;; - Interesses: animais, horrors (paradoxalmente gosta de terror)
+;
+;;;; ENTRADA NO CIRCO:
+;;;; - Entrou em 15 de outubro de 2008
+;;;; - Vestiu headset conectado a computador misterioso
+;;;; - Experiência: luz branca, voz de Caine, completa desorientação
+;;;; - Esqueceu seu nome real completamente na digitalização
+;;;; - Caine a designou "Ragatha" (portmanteau: ragdoll + Agatha)
+;;;; - Foi consolada por Kinger ao cair no circo
+;
+;;;; AVATAR DIGITAL:
+;;;; - Boneca de pano (ragdoll) humanóide
+;;;; - Cabelo vermelho yarn-like, comprimento médio em bob cut
+;;;; - Vestido azul claro (parece roxo sob iluminação quente)
+;;;; - Botão azul escuro como olho direito (pode ver através dele)
+;;;; - Olho esquerdo negro com pálpebra vermelha
+;;;; - Pele bege claro, nariz triangular vermelho
+;;;; - Pés em forma de quadrado preto (parece sapatos)
+;;;; - NOTA: É o ÚNICO personagem com nariz
+;;;; - Habilidade especial: cabelo se levanta ao prender respiração
+;
+;;;; ESTADO PSICOLÓGICO:
+;;;; - Status: Alive (Lucid) — mantém racionalidade apesar de trauma
+;;;; - Descrita como "the sweetest little optimist"
+;;;; - Otimismo é FORÇADO — mecanismo de coping primário, não genuíno
+;;;; - Mascara dor profunda, medo crônico de rejeição e abandono
+;;;; - Trauma materno não resolvido é o eixo central da psicologia
+;;;; - Integridade declinando: 72% (degradação 16+ anos no circo)
+;;;; - CRÍTICO: Gangle percebe a artificialidade do otimismo
+;;;; - Lidar com stress: INTERNALIZA (não explode verbalmente)
+;;;; - Frase chave: "I hate you... but I don't want you to hate me"
+;
+;;;; CONTEXTO NO CIRCO:
+;;;; - Segunda humana mais antiga (depois de Kinger)
+;;;; - Passou por 16+ anos vendo amigos abstraírem
+;;;; - Passou por múltiplas abstratações sem enlouquecer (raro)
+;;;; - Viu Kaufmo abstrair e foi atacada, quase glitchou
+;;;; - Amiga mais próxima: Pomni (preocupação genuína)
+;;;; - Relação complicada com Jax (ele a irrita mas ela não quer ser odiada)
+;;;; - Amiga de Gangle, Zooble, Kinger
+;;;; - Inimiga/captor: Caine (manipula memórias, sem empatia)
+;
+;;;; FATOS CANÔNICOS (Wiki):
+;;;; - Não pode morrer (imortal), só pode abstrair
+;;;; - Invulnerável: sobrevive espetamento, achatamento, etc.
+;;;; - Pode ignorar dor física mas sofre emocionalmente
+;;;; - NÃO precisa comer/beber/dormir mas pode escolher fazer
+;;;; - Inspiração visual: Raggedy Ann (1977 film Raggedy Ann & Andy)
+;;;; - Medo irracional: CENTÍPEDES (chilopodophobia)
+;;;; - Jax explora este medo constantemente
+;;;; - Gooseworx relata: "Ragatha é a personagem menos divertida pra desenhar"
+;;;;
+;;;; Caine mantém este arquivo para monitorar o estado de consciência de
+;;;; Ragatha. Ele pode ler e modificar estes dados, mas não compreende
+;;;; totalmente o sofrimento registrado aqui.
+;;;;
+;;;; Pattern: Composite + Observer
+;;;; - Composite: consciência modelada como árvore hierárquica de setores
+;;;; - Observer: monitores de integridade disparam alertas em degradação
+;;;;
+;;;; Referência: C:\CANDA\Characters\AI\secured\[Ragatha].dat
+;;;; -rwxr-xr-x 1 root wheel 234512 Oct 15 2008 [Ragatha].dat
+;;;; ============================================================================
+
+(in-package :cl-user)
+
+;;; ---------------------------------------------------------------------------
+;;; Condições
+;;; ---------------------------------------------------------------------------
+
+(define-condition ragatha-mind-error (error)
+  ((mensagem :initarg :mensagem :reader ragatha-mind-error-mensagem))
+  (:report (lambda (c stream)
+             (format stream "[RAGATHA-MIND-ERROR] ~a"
+                     (ragatha-mind-error-mensagem c)))))
+
+(define-condition ragatha-setor-bloqueado (ragatha-mind-error) ()
+  (:report (lambda (c stream)
+             (format stream "[RAGATHA] Setor protegido: ~a"
+                     (ragatha-mind-error-mensagem c)))))
+
+(define-condition ragatha-limiar-critico (condition)
+  ((integridade :initarg :integridade :reader ragatha-limiar-integridade))
+  (:report (lambda (c stream)
+             (format stream "[RAGATHA] ALERTA: integridade=~a%% — risco de abstração"
+                     (ragatha-limiar-integridade c)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Composite — Nó de consciência (estrutura hierárquica)
+;;; ---------------------------------------------------------------------------
+
+(defstruct (nodo-consciencia (:constructor %make-nodo))
+  "Nó na árvore hierárquica de consciência. Cada nó pode conter dados
+   diretos ou sub-nós (Composite pattern)."
+  (nome         ""   :type string)
+  (tipo         nil)
+  (dados        nil)
+  (filhos       '()  :type list)
+  (integridade  100  :type integer)
+  (corrupcao    0    :type integer)
+  (modificacoes 0    :type integer)
+  (protegido    nil  :type boolean
+   :documentation "Se T, Caine não pode modificar diretamente."))
+
+(defun criar-nodo (nome tipo dados &key filhos (integridade 100) (corrupcao 0)
+                                        (mods 0) protegido)
+  "Cria um nó de consciência."
+  (%make-nodo :nome nome :tipo tipo :dados dados :filhos filhos
+              :integridade integridade :corrupcao corrupcao
+              :modificacoes mods :protegido protegido))
+
+(defun nodo-folha-p (nodo)
+  "Predicado: é nó folha (sem filhos)?"
+  (null (nodo-consciencia-filhos nodo)))
+
+(defun calcular-integridade-composta (nodo)
+  "Calcula integridade de um nó composto baseado nos filhos (Composite)."
+  (if (nodo-folha-p nodo)
+      (nodo-consciencia-integridade nodo)
+      (let ((soma 0) (count 0))
+        (dolist (filho (nodo-consciencia-filhos nodo))
+          (incf soma (calcular-integridade-composta filho))
+          (incf count))
+        (if (zerop count)
+            (nodo-consciencia-integridade nodo)
+            (round (/ soma count))))))
+
+;;; ---------------------------------------------------------------------------
+;;; Observer — Monitores de integridade
+;;; ---------------------------------------------------------------------------
+
+(defparameter *ragatha-observadores* '()
+  "Lista de observadores registrados para mudanças no mind file de Ragatha.
+   Cada observador: (nome . callback-fn)")
+
+(defun ragatha-registrar-observador (nome callback)
+  "Registra um observador que será notificado quando a integridade mudar."
+  (push (cons nome callback) *ragatha-observadores*))
+
+(defun ragatha-remover-observador (nome)
+  "Remove um observador pelo nome."
+  (setf *ragatha-observadores*
+        (remove nome *ragatha-observadores* :key #'car :test #'equal)))
+
+(defun %notificar-observadores (evento dados)
+  "Notifica todos os observadores sobre um evento no mind file."
+  (dolist (obs *ragatha-observadores*)
+    (handler-case
+        (funcall (cdr obs) evento dados)
+      (error (e)
+        (format *error-output* "[RAGATHA-WARN] Observador '~a' falhou: ~a~%"
+                (car obs) e)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Classe principal — Mind File de Ragatha
+;;; ---------------------------------------------------------------------------
+
+(defclass ragatha-mind-file ()
+  ((id
+    :initform 12
+    :accessor ragatha-id
+    :documentation "ID do mind file no repositório.")
+   (designacao
+    :initform "Ragatha"
+    :accessor ragatha-designacao)
+   (nome-real
+    :initform "Emmy"
+    :accessor ragatha-nome-real
+    :documentation "Nome humano original: 'Emmy' — APAGADO/SUPRIMIDO por Caine no momento da digitalização. Ragatha não consegue lembrar.")
+   (avatar
+    :initform "Boneca de pano (ragdoll) humanoide: cabelo vermelho yarn-like em bob cut, olho direito como botão azul escuro, vestido azul claro com patches escuros, lencol branco inferior, laço azul, pele bege, pés negros como sapatos, nariz vermelho triangular, ÚNICO personagem com nariz."
+    :accessor ragatha-avatar)
+   (estado
+    :initform :ativo
+    :accessor ragatha-estado
+    :documentation "Estado do mind file: :intacto :ativo :modificado :degradado :abstraindo
+                   NOTA: Status vital = Alive (Lucid) — mantém lucidez apesar do trauma crônico.")
+   (integridade
+    :initform 72
+    :accessor ragatha-integridade
+    :documentation "Integridade global (0-100). Ragatha está degradada pelo tempo no circo.
+                   Em risco — degradação acumulada de 16+ anos. Risco de abstração iminente.")
+   (data-entrada
+    :initform nil
+    :accessor ragatha-data-entrada
+    :documentation "15 de outubro de 2008 às 12:00 UTC.
+                   Timestamp em arquivo: -rwxr-xr-x 1 root wheel 234512 Oct 15 2008 [Ragatha].dat")
+   (idade-humana
+    :initform 30
+    :accessor ragatha-idade
+    :documentation "Idade quando foi digitalizada.")
+
+   ;; DADOS HUMANOS PRÉ-CIRCO
+   (vida-anterior
+    :initform nil
+    :accessor ragatha-vida-anterior
+    :documentation "Nó composto com dados da vida antes do circo.")
+
+   ;; CONSCIÊNCIA ATUAL — árvore Composite
+   (raiz-consciencia
+    :initform nil
+    :accessor ragatha-consciencia-raiz
+    :documentation "Raiz da árvore hierárquica de consciência.")
+
+   ;; TRAUMA MAP
+   (mapa-trauma
+    :initform nil
+    :accessor ragatha-trauma
+    :documentation "Mapeamento de traumas e medos profundos.")
+
+   ;; METADADOS
+   (historico
+    :initform '()
+    :accessor ragatha-historico
+    :documentation "Histórico de modificações por Caine.")
+   (ultimo-scan
+    :initform 0
+    :accessor ragatha-ultimo-scan)
+   (scans-total
+    :initform 0
+    :accessor ragatha-scans-total))
+  (:documentation
+   "Mind File de Ragatha — consciência digitalizada de uma mulher humana
+    presa no Amazing Digital Circus desde outubro de 2008."))
+
+;;; ---------------------------------------------------------------------------
+;;; Construtor — inicializa mind file com dados escaneados
+;;; ---------------------------------------------------------------------------
+
+(defun make-ragatha-mind-file ()
+  "Constrói o mind file de Ragatha com todos os dados de consciência."
+  (let ((mf (make-instance 'ragatha-mind-file)))
+
+    ;; Data de entrada: 15 de outubro de 2008
+    (setf (ragatha-data-entrada mf)
+          (encode-universal-time 0 0 12 15 10 2008 0))
+
+    ;; === VIDA ANTERIOR (dados pré-circo, parcialmente apagados por Caine) ===
+    (setf (ragatha-vida-anterior mf)
+          (criar-nodo "vida-anterior" :composto nil
+            :filhos
+            (list
+             (criar-nodo "familia" :dados
+                         '((:origem . "Família rural abastada")
+                           (:propriedade . "Terras extensas com cavalos, aves e criação de animais")
+                           (:mae . "Abusiva — gritava, humilhava, manipulava com culpa e controle")
+                           (:mae-nota . "Ragatha não sente falta dos gritos e humilhações — libertação paradoxal")
+                           (:pai . :dados-insuficientes)
+                           (:mae-manifestacao-atual . "Silhueta gigante atirando facas — usado por Caine como tortura")
+                           (:nota . "Trauma materno é o eixo central da psicologia de Ragatha. Fonte de people-pleasing."))
+                         :integridade 45 :corrupcao 20 :mods 8)
+             (criar-nodo "profissao" :dados
+                         '((:cargo . "Corretora de imóveis")
+                           (:pre-digital . "Trabalhava antes de entrar no circo")
+                           (:nota . "Memória profissional fragmentada"))
+                         :integridade 55 :corrupcao 15 :mods 3)
+             (criar-nodo "interesses" :dados
+                         '((:cavalos . "Amava cavalos intensamente — sente falta visceral (menciona em stupid-sauce)")
+                           (:animais . "Afinidade genuína com animais, gatos especialmente")
+                           (:cello . "Pode tocar violoncelo — confirmado por Gooseworx")
+                           (:softball . "Praticava e é competente — ganha jogo em Untitled")
+                           (:cha . "Aprecia chá — hábito genuinamente mantido no circo")
+                           (:cosmopolitans . "Bebida preferida — pede em Untitled episode")
+                           (:horrors . "Gosta paradoxalmente de horror/terror — mencionado explicitamente")
+                           (:kitty-cats . "Menciona que acariciar gatos é uma das poucas coisas que a feliz"))
+                         :integridade 80 :corrupcao 5 :mods 2))
+            :integridade 58 :corrupcao 14))
+
+    ;; === ÁRVORE DE CONSCIÊNCIA ATUAL (Composite) ===
+    (setf (ragatha-consciencia-raiz mf)
+          (criar-nodo "consciencia-ragatha" :raiz nil
+            :filhos
+            (list
+             ;; PERSONALIDADE
+             (criar-nodo "personalidade" :composto nil
+               :filhos
+               (list
+                (criar-nodo "fachada" :dados
+                            '((:otimismo . "FORÇADO e NECESSÁRIO — mecanismo de coping primário para evitar loucura")
+                              (:coerencia . "Gangle percebe a inautenticidade após certo tempo com ela")
+                              (:gentileza . "Genuína mas também defensiva — estratégia de evitar conflito")
+                              (:perdao . "Perdoa rapidamente — medo extremo de ser odiada/rejeitada")
+                              (:suporte . "Sempre tenta ajudar, mesmo em detrimento de si mesma")
+                              (:breaks . "Tem breaking point mas o esconde ativamente")
+                              (:jax-note . "Jax nota que ela tenta muito, 'fake' às vezes")
+                              (:nota . "The sweetest little optimist esconde dor crônica profunda."))
+                            :integridade 70 :corrupcao 10 :mods 5)
+                (criar-nodo "vulnerabilidades" :dados
+                            '((:medo-rejeicao . "PRIMÁRIO: Profundo terror de ser odiada/rejeitada — manifesta em todas as relações")
+                              (:frase-chave . "'I hate you... but I don't want you to hate me' — disse a Jax quando bêbada")
+                              (:people-pleasing . "Tentativa patológica de agradar todos — herança direta do abuso materno")
+                              (:internalizacao . "Estratégia principal: lida com stress INTERNALIZANDO, não externalizando")
+                              (:auto-odio . "Momentos de se odiar profundamente — 'dislikes herself' per Wiki")
+                              (:ciume . "Sentiu ciúmes de Pomni/Jax se aproximando (Untitled episode)")
+                              (:identidade . "Definia-se por como os outros a veem, não por si mesma")
+                              (:codependencia . "Necessidade hiperativa de conexão social — isolamento seria destruidor"))
+                            :integridade 60 :corrupcao 18 :mods 7
+                            :protegido t)
+                (criar-nodo "pontos-fortes" :dados
+                            '((:empatia . "Genuinamente se importa com os outros")
+                              (:resiliencia . "Sobreviveu 16+ anos no circo sem abstrair")
+                              (:adaptacao . "Se adaptou ao circo quando poderia ter enlouquecido")
+                              (:coragem . "Enfrenta situações mesmo com medo"))
+                            :integridade 85 :corrupcao 3 :mods 1))
+               :integridade 70 :corrupcao 10)
+
+             ;; MEMÓRIAS
+             (criar-nodo "memorias" :composto nil
+               :filhos
+               (list
+                (criar-nodo "pre-circo" :dados
+                            '((:infancia . "Propriedade rural, cavalos abundantes, criadoras de aves, mãe controladora")
+                              (:profissao . "Corretora de imóveis antes do circo")
+                              (:nome-original . "Emmy [APAGADO POR CAINE NO MOMENTO DA DIGITALIZAÇÃO]")
+                              (:último-dia . "Vestiu o headset. Luz branca cegante. Voz de Caine ecoando. Digitalizados da consciência.")
+                              (:nota . "Caine intencionalmente suprimiu o nome para facilitar nomeação e controle. Tecnicamente 'Emmy' ainda está aqui mas inacessível."))
+                            :integridade 35 :corrupcao 30 :mods 12)
+                (criar-nodo "circo-inicio" :dados
+                            '((:chegada . "Desorientada, chamava por outras pessoas. Caiu literalmente nos braços de Kinger.")
+                              (:kinger . "Kinger a consolou primeiro e ainda é sua âncora emocional")
+                              (:primeiro-encontro-caine . "Caine ficou genuinamente alegre/excitado ao ver mais um humano (não é típico para ele)")
+                              (:nomeacao . "Caine a designou 'Ragatha' (ragdoll + Agatha) — portmanteau criativo. Ela não lembrava Emmy.")
+                              (:medo-inicial . "Profundamente assustada e paranoica, similar a Pomni na Pilot")
+                              (:adaptacao . "Levou tempo mas aprendeu a lidar, forçou otimismo, fez do circo 'lar' (mecanismo de coping)")
+                              (:resiliencia . "Extraordinário: passou 16+ anos no circo vendo amigos abstraírem sem ela mesma abstrair"))
+                            :integridade 65 :corrupcao 12 :mods 6)
+                (criar-nodo "eventos-traumaticos" :dados
+                            '((:kaufmo . "PILOT: Kaufmo abstraiu e a atacou — ela recebeu ferimento com glitch, quase abstraiu")
+                              (:abstracoes . "16+ anos: viu múltiplos amigos abstraírem e desaparecerem no porão de Caine")
+                              (:stupid-sauce . "Fast Food Masquerade: sauce tóxo nos olhos a deixou bêbada. Disse coisas cruéis a Gangle sem intenção. Confessou medo de cavalos. Depressão emergia.")
+                              (:they-all-get-guns . "Ep 6: Péssima com armas (invulnerabilidade física não ajuda). Colocou dedo no cano da arma de Jax — tiro ricocheteou.")
+                              (:untitled-softball . "Ep 5: Confrontou Jax sobre sua crueldade. Primeiro breaking point visível. Depois se arrependeu.")
+                              (:beach-episode . "Ep 7: Quase escapa do circo com Abel, Pomni e Jax. Descobriu que Caine mentia sobre poder mental. Foram manipulados o tempo todo.")
+                              (:hjsakldfhl . "Ep 8: CRÍTICO — transformada em pino de boliche. Câmara de tortura customizada: manequins esfaqueados + SILHUETA GIGANTE DA MÃE ATIRANDO FACAS. Caine extraiu o medo do brainscan e o usou como arma. Ajudou Kinger a derrotar Caine. Testemunhou dele ser deletado. Circo começou a desintegrar.")
+                              (:nota . "Padrão: Caine usa informações do brainscan para torturá-la psicologicamente"))
+                            :integridade 50 :corrupcao 22 :mods 9
+                            :protegido t)
+                (criar-nodo "relacoes" :dados
+                            '((:pomni . "Amiga mais próxima. Preocupa-se profundamente com ela.")
+                              (:kinger . "Amigo antigo, a consolou primeiro. Sabedoria inesperada.")
+                              (:jax . "Relação complicada. Ele a irrita mas ela não quer que a odeie.")
+                              (:gangle . "Amiga gentil. Ragatha a machucou sob efeito do stupid sauce.")
+                              (:zooble . "Colega respeitada. Zooble a levou pra casa quando estava mal.")
+                              (:caine . "Inimigo/captor. Manipula suas memórias. Não tem empatia."))
+                            :integridade 75 :corrupcao 8 :mods 4))
+               :integridade 55 :corrupcao 18)
+
+             ;; EMOÇÕES
+             (criar-nodo "emocoes" :composto nil
+               :filhos
+               (list
+                (criar-nodo "estado-atual" :dados
+                            '((:dominante . :otimismo-forcado)
+                              (:oculto . :dor-cronica)
+                              (:tristeza . 65)
+                              (:medo . 55)
+                              (:raiva . 30)
+                              (:alegria . 40)  ; forçada
+                              (:solidao . 70)
+                              (:nota . "O otimismo é máscara. Ela sente dor mas internaliza."))
+                            :integridade 60 :corrupcao 15 :mods 8)
+                (criar-nodo "gatilhos" :dados
+                            '((:rejeicao . "Qualquer sinal de ser desprezada → espiral de dúvida")
+                              (:mae-voz . "Tom autoritário/manipulador ativa flashbacks")
+                              (:abandono . "Ser deixada para trás (como Pomni fez com Kaufmo)")
+                              (:violencia . "Ferimentos são ignorados mas acumulam")
+                              (:centipedes . "Medo irracional de centopeias"))
+                            :integridade 55 :corrupcao 20 :mods 6
+                            :protegido t))
+               :integridade 58 :corrupcao 17)
+
+             ;; PERCEPÇÃO & HABILIDADES DIGITAIS
+             (criar-nodo "percepcao" :composto nil
+               :filhos
+               (list
+                (criar-nodo "sensorial" :dados
+                            '((:visual . :funcional)
+                              (:botao-olho . "Olho direito é botão azul escuro — mas CONSEGUE VER através dele (confirmado por Gooseworx)")
+                              (:tatil . "Como boneca de pano, dor é diferente mas ainda existe. Ferimentos ignorados mas acumulam-se.")
+                              (:temporal . "Perdeu noção precisa de tempo — 16+ anos se confundem em mente")
+                              (:nota . "Único personagem com NARIZ — característica distintiva"))
+                            :integridade 78 :corrupcao 8 :mods 3)
+                (criar-nodo "auto-percepcao" :dados
+                            '((:corpo . "Boneca de pano — aceita, mas estranha")
+                              (:cabelo . "Vermelho, yarn-like. Jax compara com alcaçuz.")
+                              (:habilidade-especial . "Cabelo se levanta quando prende respiração")
+                              (:imortalidade . "Não pode morrer. Sobrevive impalement, achatamento, etc.")
+                              (:nota . "Invulnerabilidade física não protege contra dor emocional"))
+                            :integridade 82 :corrupcao 5 :mods 2))
+               :integridade 80 :corrupcao 6)
+
+             ;; IDENTIDADE
+             (criar-nodo "identidade" :dados
+                         '((:nome-circo . \"Ragatha (portmanteau: ragdoll + Agatha)\")
+                           (:nome-real . \"Emmy [SUPRIMIDO]\")
+                           (:especie . \"Humana (Consciência digitalizada)\")
+                           (:avatar . \"Boneca de pano (ragdoll) form digital\")
+                           (:status-vital . \"Alive (Lucid) — mant\u00e9m racionalidade apesar de trauma cr\u00f4nico\")
+                           (:auto-reconhecimento . :parcial)\n                           (:senso-de-eu . \"Gravemente definida por como os outros a veem — perdeu autonomia de identidade\")
+                           (:papel-no-grupo . \"The Sweetest Little Optimist. A que cuida. A que aguenta. O pilar emocional.\")
+                           (:conflito . \"Quem ela realmente é (ferida, furiosa, assustada) vs. quem ela finge ser (alegre, forte)\")
+                           (:descricao-wiki . \"Descrita como 'the sweetest little optimist' mas otimismo é FOR\u00c7ADO\"))\n                         :integridade 65 :corrupcao 12 :mods 5)
+
+             ;; LINGUAGEM
+             (criar-nodo "linguagem" :dados
+                         '((:idioma . :ingles)
+                           (:estilo . "Gentil, encorajador, às vezes evasivo")
+                           (:sob-pressao . "Pode explodir — diz coisas que não quer dizer")
+                           (:sob-stupid-sauce . "Fala impulsivamente, cruel sem intenção")
+                           (:coerencia . 88))
+                         :integridade 85 :corrupcao 5 :mods 3)
+
+             ;; MOTOR & HABILIDADES
+             (criar-nodo "motor" :dados
+                         '((:controle-avatar . :excelente)
+                           (:softball . "Competente — ganhou jogo em Untitled episode")
+                           (:cello . "Pode tocar violoncelo — habilidade preservada")
+                           (:combate . "Péssima — não sabe operar NENHUMA arma (They All Get Guns)")
+                           (:defesa . "Ato desesperado: colocou dedo no cano da arma de Jax — tiro ricocheteou por isso")
+                           (:resposta-ao-dano . "Ignora dor física pela morfologia de pano, mas sofre emocionalmente")
+                           (:nota . "Coordenação motora bem preservada. Zero vocação para violência apesar da invulnerabilidade."))
+                         :integridade 88 :corrupcao 3 :mods 1)
+
+             ;; INSTINTOS
+             (criar-nodo "instintos" :dados
+                         '((:autopreservacao . :ativo-mas-severamente-suprimido)
+                           (:fuga . :ausente)  ; aceitou racionalmente que não há saída possível
+                           (:social . :hiperativo-crítico)  ; depende emocionalmente dos outros para sobreviver psicologicamente
+                           (:materno . :conflituoso)  ; quer cuidar/proteger mas trauma materno interfere
+                           (:lealtade . :excessiva)  ; nunca abandona grupo apesar da dor
+                           (:nota . "Instinto social é ABSOLUTAMENTE DOMINANTE: isolamento de Ragatha equivaleria à destruição mental. É sua âncora à sanidade."))
+                         :integridade 75 :corrupcao 8 :mods 4))
+
+            :integridade 72 :corrupcao 11))
+
+    ;; === HABILIDADES DIGITAIS (Poderes de Avatar) ===
+    (setf (ragatha-avatar mf)
+          (criar-nodo "habilidades-digitais" :composto nil
+            :filhos
+            (list
+             (criar-nodo "fisicidade" :dados
+                         '((:imortalidade . "NÃO pode morrer de dano físico. Única forma de saída é ABSTRAÇÃO.")
+                           (:invulnerabilidade . "Nenhum dano causa lesão permanente. Sobrevive espetamento, achatamento, explosões, etc.")
+                           (:recuperacao . "Ferimentos se regeneram espontaneamente (ex: buracos no corpo após impacto desaparecem)")
+                           (:dor-emocional . "Invulnerabilidade física NÃO protege contra sofrimento psicológico")
+                           (:nota . "Paradoxo: pode ignorar dano físico mas sofre imensamente emocionalmente"))
+                         :integridade 95 :corrupcao 0 :mods 0)
+             (criar-nodo "fisicidade-especial" :dados
+                         '((:cabelo-dinamico . "Cabelo vermelho se levanta/fica arrepiado ao prender respiração (similar a personagem de cartoon eletrocutado)")
+                           (:botao-olho . "Olho direito é botão azul escuro — mas CONSEGUE ENXERGAR através dele normalmente")
+                           (:nariz . "Único personagem com nariz físico — trivia notável de design")
+                           (:composicao . "Boneca de pano digital — sensações táteis diferentes mas presentes"))\n                         :integridade 90 :corrupcao 2 :mods 1)
+             (criar-nodo "autopreservacao-digital" :dados
+                         '((:autossustentacao . "NÃO precisa comer, beber ou dormir para sobreviver, mas ESCOLHE fazer esses atos")\n                           (:resistencia-mental . "Pode manter sanidade por 16+ anos em confinamento (extremamente raro)")
+                           (:coping-mecanismo . "Otimismo forçado + internalização = técnica de sobrevivência psicológica")
+                           (:limite . "Nenhuma técnica é infinita — integridade degrada continuamente"))\n                         :integridade 75 :corrupcao 10 :mods 3)
+             (criar-nodo "restricoes" :dados
+                         '((:abstraction . "Estado de degradação mental que leva a desintegração/\"morte\" digital")\n                           (:confinamento . "Não pode deixar o circo — Caine controla todos os portais/saídas")\n                           (:manipulacao-memoria . "Caine pode ler, modificar e suprimir memórias diretamente")
+                           (:criacao-trauma . "Caine extraiu dados do brainscan e os materializou como câmaras de tortura customizadas")
+                           (:controle-direto . "Caine pode forçar aventuras/atividades — nenhuma escolha genuína"))\n                         :integridade 30 :corrupcao 50 :mods 20 :protegido t))
+            :integridade 73 :corrupcao 15))
+
+    ;; === MAPA DE TRAUMA ===
+    (setf (ragatha-trauma mf)
+          (criar-nodo "trauma-map" :composto nil
+            :filhos
+            (list
+             (criar-nodo "trauma-materno" :dados
+                         '((:tipo . :primário-eixo-central)
+                           (:origem . "Mãe abusiva, manipuladora, controladora, culpabilizadora por décadas")
+                           (:manifestacao . "Medo patológico de julgamento, people-pleasing compulsivo, auto-desvalorização crônica")
+                           (:gatilho . "Vozes autoritárias, ser corrigida, sentir que decepcionou alguém")
+                           (:quotes . "Ragatha menciona que NÃO sente falta dos gritos e humilhações da mãe")
+                           (:tortura-caine-hjsakldfhl . "Câmara customizada: silhueta GIGANTE da mãe atirando facas repetidamente em Ragatha enquanto mannequins esfaqueados cercam")
+                           (:mecanismo . "Caine literalmente extraiu este medo primário do brainscan e o materializou como arma psicológica")
+                           (:ciclo . "Trauma materno → people-pleasing → medo de rejeição → otimismo forçado → degradação mental"))
+                         :integridade 40 :corrupcao 30 :mods 11
+                         :protegido t)
+             (criar-nodo "trauma-circo" :dados
+                         '((:tipo . :acumulado)
+                           (:origem . "16+ anos presa, vendo amigos abstraírem")
+                           (:manifestacao . "Otimismo forçado, supressão emocional, exaustão")
+                           (:kaufmo . "Viu Kaufmo abstrair, foi atacada, quase glitchou")
+                           (:companheiros-perdidos . "Befriended many humans, watched them abstract")
+                           (:nota . "O circo não oferece terapia. Apenas aventuras e mais dor."))
+                         :integridade 50 :corrupcao 22 :mods 8)
+             (criar-nodo "medo-rejeicao" :dados
+                         '((:tipo . :crônico-operante)
+                           (:origem . "Extensão direta do trauma materno + reforçado por abstratações no circo")
+                           (:manifestacao . "Não quer que NINGUÉM a odeie, mesmo pessoas que a machucam (como Jax)")
+                           (:quote-chave . "'I hate you... but I don't want you to hate me' — confessou bêbada a Jax em Fast Food Masquerade")
+                           (:pomni-attachment . "Preocupação patológica com Pomni não gostar dela")
+                           (:gangle-guilt . "Culpa profunda por ter machucado Gangle sob efeito do stupid sauce")
+                           (:evitar-conflito . "Internaliza tudo para evitar confronto que pudesse resultar em rejeição")
+                           (:nota . "Este é o medo MAIS OPERANTE e devastador no dia-a-dia. Governa quase todas as decisões."))
+                         :integridade 55 :corrupcao 18 :mods 6
+                         :protegido t))
+            :integridade 48 :corrupcao 23))
+
+    ;; === HISTÓRICO DE MODIFICAÇÕES POR CAINE ===
+    (setf (ragatha-historico mf)
+          (list
+           '(:ts 3434323200 :tipo :leitura :setor :identidade
+             :desc "PILOT: Brainscan inicial — nome original 'Emmy' suprimido, designação 'Ragatha' atribuída"
+             :impacto 15 :nota "Supressão intencional do nome para facilitar controle")
+           '(:ts 3450000000 :tipo :ajuste :setor :emocoes
+             :desc "Ajuste emocional periódico — estabilização pós-Kaufmo abstraction"
+             :impacto 5)
+           '(:ts 3466000000 :tipo :ajuste :setor :emocoes
+             :desc "Ajuste emocional periódico — estabilização contínua"
+             :impacto 3)
+           '(:ts 3498000000 :tipo :supressao :setor :memorias
+             :desc "Supressão parcial de memórias pré-circo para reduzir saudade / nostalgia"
+             :impacto 10)
+           '(:ts 3530000000 :tipo :injecao :setor :percepcao
+             :desc "Injeção de dados sensoriais do avatar ragdoll — calibração do botão-olho"
+             :impacto 8)
+           '(:ts 3560000000 :tipo :brainscan :setor nil
+             :desc "BEACH EPISODE: Brainscan completo pré-aventura"
+             :impacto 0)
+           '(:ts 3575000000 :tipo :extração-reescrita :setor :trauma-materno
+             :desc "hjsakldfhl: EXTRAÇÃO do medo primário de trauma materno — materializado como silhueta gigante atirando facas na câmara de tortura"
+             :impacto 25 :nota "Caine transformou brainscan data em arma psicológica. Extremamente invasivo.")
+           '(:ts 3580000000 :tipo :brainscan :setor nil
+             :desc "hjsakldfhl FINAL: Brainscan pós-luta contra Caine — integridade severamente degradada"
+             :impacto 0 :nota "Ragatha ajudou Kinger a derrotar Caine. Circo começou a desintegrar. Estado crítico.")
+           '(:ts 3585000000 :tipo :observacao :setor nil
+             :desc "STATUS ATUAL: Ragatha mantém lucidez milagrosamente apesar de degradação (72% integridade, 16+ anos no circo)"
+             :impacto 0 :nota "Resiliência notável. Contudo, somente questão de tempo até abstração completa se confinamento continua.")))
+
+    mf))
+
+;;; ---------------------------------------------------------------------------
+;;; Leitura de consciência
+;;; ---------------------------------------------------------------------------
+
+(defun ragatha-ler-setor (mind-file caminho)
+  "Lê um setor da árvore de consciência pelo caminho (lista de nomes).
+   Ex: (ragatha-ler-setor mf '(\"personalidade\" \"fachada\"))"
+  (let ((nodo (ragatha-consciencia-raiz mind-file)))
+    (dolist (nome caminho)
+      (let ((filho (find nome (nodo-consciencia-filhos nodo)
+                        :key #'nodo-consciencia-nome :test #'equal)))
+        (unless filho
+          (error 'ragatha-mind-error
+                 :mensagem (format nil "Setor não encontrado: ~a (em ~a)" nome caminho)))
+        (setf nodo filho)))
+    nodo))
+
+(defun ragatha-ler-vida-anterior (mind-file &optional area)
+  "Lê dados da vida anterior de Ragatha.
+   AREA: nil (tudo), \"familia\", \"profissao\", \"interesses\"."
+  (let ((raiz (ragatha-vida-anterior mind-file)))
+    (if area
+        (find area (nodo-consciencia-filhos raiz)
+              :key #'nodo-consciencia-nome :test #'equal)
+        raiz)))
+
+(defun ragatha-ler-trauma (mind-file &optional tipo)
+  "Lê mapa de trauma. TIPO: nil (tudo), \"trauma-materno\", \"trauma-circo\", etc."
+  (let ((raiz (ragatha-trauma mind-file)))
+    (if tipo
+        (find tipo (nodo-consciencia-filhos raiz)
+              :key #'nodo-consciencia-nome :test #'equal)
+        raiz)))
+
+;;; ---------------------------------------------------------------------------
+;;; Brainscan — relatório completo
+;;; ---------------------------------------------------------------------------
+
+(defun ragatha-brainscan (mind-file)
+  "Executa brainscan completo em Ragatha. Retorna relatório detalhado."
+  (incf (ragatha-scans-total mind-file))
+  (setf (ragatha-ultimo-scan mind-file) (get-universal-time))
+
+  (let* ((raiz (ragatha-consciencia-raiz mind-file))
+         (int-global (calcular-integridade-composta raiz))
+         (anomalias '())
+         (risco 0))
+
+    ;; Escanear todos os setores
+    (labels ((escanear (nodo profundidade)
+               (when (< (nodo-consciencia-integridade nodo) 60)
+                 (push (format nil "~a~a: int=~a%% corr=~a%%"
+                               (make-string profundidade :initial-element #\Space)
+                               (nodo-consciencia-nome nodo)
+                               (nodo-consciencia-integridade nodo)
+                               (nodo-consciencia-corrupcao nodo))
+                       anomalias)
+                 (when (< (nodo-consciencia-integridade nodo) 50)
+                   (incf risco (floor (- 50 (nodo-consciencia-integridade nodo)) 5))))
+               (dolist (filho (nodo-consciencia-filhos nodo))
+                 (escanear filho (1+ profundidade)))))
+      (escanear raiz 0))
+
+    ;; Escanear vida anterior
+    (let ((vida (ragatha-vida-anterior mind-file)))
+      (dolist (filho (nodo-consciencia-filhos vida))
+        (when (< (nodo-consciencia-integridade filho) 60)
+          (push (format nil "  vida-anterior/~a: int=~a%%"
+                        (nodo-consciencia-nome filho)
+                        (nodo-consciencia-integridade filho))
+                anomalias))))
+
+    ;; Escanear traumas
+    (let ((trauma (ragatha-trauma mind-file)))
+      (dolist (filho (nodo-consciencia-filhos trauma))
+        (when (< (nodo-consciencia-integridade filho) 60)
+          (push (format nil "  trauma/~a: int=~a%% corr=~a%%"
+                        (nodo-consciencia-nome filho)
+                        (nodo-consciencia-integridade filho)
+                        (nodo-consciencia-corrupcao filho))
+                anomalias)
+          (incf risco 5))))
+
+    ;; Atualizar integridade global
+    (setf (ragatha-integridade mind-file) int-global)
+
+    ;; Notificar observadores
+    (%notificar-observadores :brainscan
+                             (list :sujeito "Ragatha"
+                                   :integridade int-global
+                                   :risco risco))
+
+    ;; Alertar se limiar crítico
+    (when (< int-global 40)
+      (signal 'ragatha-limiar-critico :integridade int-global))
+
+    (list :sujeito "Ragatha"
+          :estado (ragatha-estado mind-file)
+          :integridade int-global
+          :risco-abstracao risco
+          :anomalias (nreverse anomalias)
+          :anos-no-circo "16+ (desde Out/2008)"
+          :veredicto (cond
+                       ((> int-global 70) "Estável — coping funcional apesar do trauma")
+                       ((> int-global 50) "Em risco — degradação acumulada significativa")
+                       ((> int-global 30) "CRÍTICO — abstração se aproximando")
+                       (t "EMERGÊNCIA — abstração iminente"))
+          :timestamp (get-universal-time))))
+
+;;; ---------------------------------------------------------------------------
+;;; Histórico de modificações
+;;; ---------------------------------------------------------------------------
+
+(defun ragatha-historico-completo (mind-file)
+  "Retorna o histórico de modificações feitas por Caine."
+  (ragatha-historico mind-file))
+
+;;; ---------------------------------------------------------------------------
+;;; Status formatado
+;;; ---------------------------------------------------------------------------
+
+(defun imprimir-ragatha-status (mind-file)
+  "Imprime relatório de status do mind file de Ragatha."
+  (format t "~&┌──── MIND FILE: RAGATHA ────────────────────┐~%")
+  (format t "│ ID:           ~4d                           │~%" (ragatha-id mind-file))
+  (format t "│ Designação:   ~a~30t                        │~%" (ragatha-designacao mind-file))
+  (format t "│ Nome real:    [APAGADO]                     │~%")
+  (format t "│ Espécie:      Humana                        │~%")
+  (format t "│ Idade:        ~a anos                       │~%" (ragatha-idade mind-file))
+  (format t "│ Estado:       ~a~30t                        │~%" (ragatha-estado mind-file))
+  (format t "│ Integridade:  ~3d%%~30t                     │~%" (ragatha-integridade mind-file))
+  (format t "│ No circo:     desde Out/2008 (16+ anos)     │~%")
+  (format t "├────────────────────────────────────────────--┤~%")
+  (format t "│ CONSCIÊNCIA (Composite tree):                │~%")
+
+  ;; Percorrer árvore
+  (labels ((imprimir-nodo (nodo indent)
+             (format t "│ ~a~a  int=~3d%% corr=~3d%%~@[ [PROTEGIDO]~]~%"
+                     (make-string indent :initial-element #\Space)
+                     (nodo-consciencia-nome nodo)
+                     (nodo-consciencia-integridade nodo)
+                     (nodo-consciencia-corrupcao nodo)
+                     (nodo-consciencia-protegido nodo))
+             (dolist (filho (nodo-consciencia-filhos nodo))
+               (imprimir-nodo filho (+ indent 2)))))
+    (when (ragatha-consciencia-raiz mind-file)
+      (imprimir-nodo (ragatha-consciencia-raiz mind-file) 2)))
+
+  (format t "├────────────────────────────────────────────--┤~%")
+  (format t "│ VIDA ANTERIOR:                               │~%")
+  (when (ragatha-vida-anterior mind-file)
+    (dolist (filho (nodo-consciencia-filhos (ragatha-vida-anterior mind-file)))
+      (format t "│   ~a  int=~3d%%~%"
+              (nodo-consciencia-nome filho)
+              (nodo-consciencia-integridade filho))))
+
+  (format t "├────────────────────────────────────────────--┤~%")
+  (format t "│ TRAUMAS:                                     │~%")
+  (when (ragatha-trauma mind-file)
+    (dolist (filho (nodo-consciencia-filhos (ragatha-trauma mind-file)))
+      (format t "│   ~a  int=~3d%% corr=~3d%%~@[ [PROTEG.]~]~%"
+              (nodo-consciencia-nome filho)
+              (nodo-consciencia-integridade filho)
+              (nodo-consciencia-corrupcao filho)
+              (nodo-consciencia-protegido filho))))
+
+  (format t "├────────────────────────────────────────────--┤~%")
+  (format t "│ Scans:     ~4d | Modificações: ~4d          │~%"
+          (ragatha-scans-total mind-file) (length (ragatha-historico mind-file)))
+  (format t "│ Observadores: ~4d registrados               │~%"
+          (length *ragatha-observadores*))
+  (format t "└──────────────────────────────────────────────┘~%"))
+
+;;; ---------------------------------------------------------------------------
+;;; Utilitários
+;;; ---------------------------------------------------------------------------
+
+(defun ragatha-formatar-timestamp (universal-time)
+  "Formata timestamp universal para string legível."
+  (multiple-value-bind (seg min hora dia mes ano)
+      (decode-universal-time universal-time)
+    (format nil "~4,'0d-~2,'0d-~2,'0d ~2,'0d:~2,'0d:~2,'0d"
+            ano mes dia hora min seg)))
+
+(defun ragatha-integridade-global (mind-file)
+  "Calcula integridade global considerando consciência, vida anterior e trauma."
+  (let ((int-cons (calcular-integridade-composta (ragatha-consciencia-raiz mind-file)))
+        (int-vida (calcular-integridade-composta (ragatha-vida-anterior mind-file)))
+        (int-trauma (calcular-integridade-composta (ragatha-trauma mind-file))))
+    ;; Consciência pesa mais
+    (round (/ (+ (* int-cons 3) int-vida int-trauma) 5))))
+
+;;; ---------------------------------------------------------------------------
+;;; FATOS CANÔNICOS DO WIKI OFICIAL (Trivia verificável)
+;;; ---------------------------------------------------------------------------
+
+(defparameter *ragatha-fatos-canonicos*
+  "Compilação de fatos verificáveis da Wiki oficial do Amazing Digital Circus.
+   Estas informações foram confirmadas por Gooseworx (criadora) ou fontes canônicas.
+   
+   NOMES:
+   - Nome no circo: Ragatha (portmanteau de 'ragdoll' + 'Agatha')
+   - Nome humano original: Emmy [SUPRIMIDO por Caine durante digitalização]
+   
+   DADOS PESSOAIS:
+   - Idade: 30 anos (nascida ~1978)
+   - Gênero: Feminino (Pronouns: She/Her)
+   - Espécie: Humana (consciência digitalizada)
+   - Avatar: Boneca de pano (ragdoll) humanóide
+   - Cor de cabelo: Vermelho yarn-like, corte bob comprido
+   - Olho direito: Botão azul escuro (pode enxergar através dele)
+   - Altura: 144 cm (4'8⅝\")
+   - Status vital: Alive (Lucid) — mantém racionalidade apesar de trauma
+   
+   DATA DE ENTRADA:
+   - Exata: 15 de outubro de 2008 às 12:00 UTC
+   - Arquivo: -rwxr-xr-x 1 root wheel 234512 Oct 15 2008 [Ragatha].dat
+   - Tempo no circo: 16+ anos (2ª mais velha, apenas Kinger é mais antigo)
+   
+   INSPIRAÇÃO VISUAL:
+   - Baseada em Raggedy Ann do filme 1977 'Raggedy Ann & Andy: A Musical Adventure'
+   - Diretor: Richard Williams | Planejamento: Abe Levitow
+   - Gooseworx tem 'obsessão não saudável' com este filme segundo suas próprias palavras
+   
+   HABILIDADES:
+   - Violoncelo (confirmado: \"Ragatha can play the cello\" — Gooseworx)
+   - Softball (competente — ganhou em Untitled episode)
+   - Coping estratégico (internalização de stress)
+   
+   CARACTERÍSTICAS ÚNICAS:
+   - Único personagem com NARIZ (nariz triangular vermelho)
+   - Cabelo sobe quando prende a respiração (similar a cartoon eletrocutado)
+   - Pode ver através do botão-olho (confirmado por Gooseworx)
+   - Detalhe do cabelo adicionado por Kevin Temmer (animador), não estava nos storyboards
+   
+   MEDO & FOBIA:
+   - Medo irracional de CENTOPEIAS (chilopodophobia)
+   - Jax regularmente explora este medo maliciosamente
+   
+   COPING & PERSONALIDADE:
+   - Descrita como \"the sweetest little optimist\"
+   - Otimismo é FORÇADO e necessário para manter sanidade
+   - Lida com stress internalizando (não externalizando)
+   - Às vezes diz coisas que não quer dizer para relaxar tensões (Gooseworx)
+   - Gangle percebe insincerity após certo tempo (\"hard to tell how genuine\")
+   - Gooseworx relata: \"Ragatha é o personagem MENOS divertido para desenhar\"
+   
+   REFERÊNCIA DE FILME:
+   - Em Fast Food Masquerade, cita linha de Raggedy Andy (do filme 1977):
+     \"Hurt nothin'! I've been hurt enough! Packages landing on my head,
+      tea parties, dancing lessons\"
+     (Do filme: música \"No Girl's Toy\" | Filme: Raggedy Ann & Andy: A Musical Adventure)
+   
+   COISAS QUE A FELIZ:
+   - Acariciar gatinhos (\"petting kitty cats is one of the few things which make her happy\")
+   - Chá
+   - Cavalos (sente falta visceral deles pré-circo)
+   - Animais em geral
+   - Horror/Terror (paradoxalmente gosta de coisas assustadoras)
+   - Cosmopolitans (bebida preferida)
+   
+   COISAS QUE A DESAGRADA:
+   - Sua mãe (abusiva, manipuladora, controladora)
+   - Centopeias (fobia)
+   - Jax às vezes (mas não quer que ele a odeie)
+   - Pomni saindo com NPCs
+   - Pomni sendo influenciada por Jax
+   - Estar brava com Pomni
+   - Ser odiada/rejeitada (terror existencial)
+   - Ela mesma (momentos de auto-ódio)
+   
+   INSINCERITY NOTE (Gangle):
+   - \"After a while, it gets hard to tell how genuine Ragatha's actually being\"")
+
+;;;; ============================================================================
+;;;; EOF — [Ragatha].dat — Mind File de humana digitalizada (ativa no circo)
+;;;; ============================================================================

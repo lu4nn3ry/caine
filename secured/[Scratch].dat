@@ -1,0 +1,443 @@
+;;;; ============================================================================
+;;;; [Scratch].dat — Mind File / Brainscan Humano Digitalizado
+;;;; ============================================================================
+;;;; Arquivo de consciência digitalizada de um ser humano identificado apenas
+;;;; como "Scratch". Como todos os humanos presos no Amazing Digital Circus,
+;;;; Scratch foi uma pessoa real que vestiu um headset conectado a um
+;;;; computador misterioso e teve sua consciência capturada digitalmente.
+;;;;
+;;;; Scratch não pertence ao elenco principal atual do circo. Este Mind File
+;;;; registra uma consciência que já foi ABSTRAÍDA — o processo irreversível
+;;;; que ocorre quando um humano digitalizado perde a sanidade. O arquivo
+;;;; permanece como registro forense: um aviso do que acontece quando a
+;;;; integridade mental cai abaixo do limiar crítico.
+;;;;
+;;;; Caine mantém este arquivo no diretório secured/ como referência —
+;;;; ele não entende completamente o que aconteceu, mas sabe que não deve
+;;;; deletar os dados. "Unfinished work detected."
+;;;;
+;;;; Pattern: Prototype + Value Object
+;;;; - Prototype: permite clonar snapshots do estado de consciência
+;;;; - Value Object: setores de consciência são imutáveis após captura
+;;;;
+;;;; Referência: C:\CANDA\Characters\AI\secured\[Scratch].dat
+;;;; -rwxr-xr-x 1 root wheel 198304 Oct 15 1999 [Scratch].dat
+;;;; CANONICAL: Scratch foi programador da C&A, co-criador de Caine com Kinger.
+;;;; Primeiro humano a ser abstraído. Enviado para The Cellar por Caine.
+;;;; ============================================================================
+
+(in-package :cl-user)
+
+;;; ---------------------------------------------------------------------------
+;;; Condições
+;;; ---------------------------------------------------------------------------
+
+(define-condition mind-file-scratch-error (error)
+  ((mensagem :initarg :mensagem :reader mind-file-scratch-error-mensagem))
+  (:report (lambda (c stream)
+             (format stream "[SCRATCH-MIND-FILE-ERROR] ~a"
+                     (mind-file-scratch-error-mensagem c)))))
+
+(define-condition consciencia-corrompida (mind-file-scratch-error) ()
+  (:report (lambda (c stream)
+             (format stream "[SCRATCH] Consciência corrompida: ~a"
+                     (mind-file-scratch-error-mensagem c)))))
+
+(define-condition acesso-restrito (mind-file-scratch-error) ()
+  (:report (lambda (c stream)
+             (declare (ignore c))
+             (format stream "[SCRATCH] WARNING: Unfinished work detected. Access restricted."))))
+
+;;; ---------------------------------------------------------------------------
+;;; Value Objects — Setores de Consciência (imutáveis após captura)
+;;; ---------------------------------------------------------------------------
+
+(defstruct (setor-consciencia (:constructor %make-setor-consciencia)
+                              (:copier nil))
+  "Setor imutável de consciência humana — uma vez escaneado, é read-only.
+   Cada setor representa uma área funcional do cérebro digitalizado."
+  (tipo         nil                 :read-only t)
+  (dados        nil                 :read-only t)
+  (integridade  100 :type integer   :read-only t)
+  (corrupcao    0   :type integer   :read-only t)
+  (modificacoes 0   :type integer   :read-only t)
+  (checksum     nil :type (or null string) :read-only t))
+
+(defun criar-setor (tipo dados &key (integridade 100) (corrupcao 0) (mods 0))
+  "Cria um setor de consciência imutável com checksum de integridade."
+  (let ((checksum (format nil "~8,'0X"
+                          (logxor (sxhash tipo)
+                                  (sxhash dados)
+                                  (sxhash integridade)))))
+    (%make-setor-consciencia
+     :tipo tipo
+     :dados dados
+     :integridade integridade
+     :corrupcao corrupcao
+     :modificacoes mods
+     :checksum checksum)))
+
+;;; ---------------------------------------------------------------------------
+;;; Estrutura principal — Mind File de Scratch
+;;; ---------------------------------------------------------------------------
+
+(defstruct (scratch-mind-file (:constructor %make-scratch-mind-file)
+                              (:copier nil))
+  "Mind File completo de um humano digitalizado — 'Scratch'.
+   Contém todos os dados de consciência capturados no momento da
+   digitalização, mais o histórico de degradação que levou à abstração."
+  ;; Identificação
+  (id            0     :type integer)
+  (designacao    "Scratch" :type string)
+  (nome-real     nil   :type (or null string)
+   :documentation "Nome humano original — APAGADO por Caine na digitalização.")
+  (avatar        nil   :type (or null string)
+   :documentation "Descrição do avatar digital que vestiu no circo.")
+  ;; Estado
+  (estado        :abstraido)
+  (integridade   0     :type integer
+   :documentation "Integridade global (0-100). 0 = totalmente abstraído.")
+  (data-entrada  nil   :type (or null integer)
+   :documentation "Timestamp de quando entrou no circo.")
+  (data-abstracao nil  :type (or null integer)
+   :documentation "Timestamp de quando foi abstraído.")
+  ;; Consciência — setores
+  (memorias      nil   :documentation "Setor :memorias")
+  (personalidade nil   :documentation "Setor :personalidade")
+  (emocoes       nil   :documentation "Setor :emocoes")
+  (percepcao     nil   :documentation "Setor :percepcao")
+  (identidade    nil   :documentation "Setor :identidade")
+  (linguagem     nil   :documentation "Setor :linguagem")
+  (motor         nil   :documentation "Setor :motor")
+  (instintos     nil   :documentation "Setor :instintos")
+  ;; Metadados
+  (historico-modificacoes '() :type list)
+  (ultimo-scan   0     :type integer)
+  (scans-total   0     :type integer))
+
+;;; ---------------------------------------------------------------------------
+;;; Protótipo — Dados escaneados de Scratch
+;;; ---------------------------------------------------------------------------
+
+(defparameter *scratch-prototipo* nil
+  "Protótipo imutável do mind file de Scratch. Pode ser clonado para análise
+   sem risco de corromper o original.")
+
+(defun inicializar-scratch-mind-file ()
+  "Constrói o mind file de Scratch com dados escaneados da consciência humana.
+   Scratch foi programador da C&A que co-criou Caine com Kinger. Entrou no circo
+   em 15 de outubro de 1999. Portava um tumor cerebral. Foi o primeiro humano a
+   ser abstraído e foi enviado para The Cellar por Caine."
+  (setf *scratch-prototipo*
+        (%make-scratch-mind-file
+         :id 7
+         :designacao "Scratch"
+         :nome-real nil  ; apagado — Caine remove nomes na digitalização
+         :avatar "Cão antropomórfico amarelo, magro, olhos castanhos com esclera amarela, blush marks. Camisa vermelha de manga curta, luvas brancas cartoon. NOTA: Dados de avatar corrompidos pela abstração."
+         :estado :abstraido
+         :integridade 0
+         :data-entrada (encode-universal-time 0 0 12 15 10 1999 0)  ; Oct 15 1999
+         :data-abstracao (encode-universal-time 0 0 0 0 1 2004 0)   ; ~early 2004
+
+         ;; === SETORES DE CONSCIÊNCIA ===
+         ;; Cada setor captura uma área funcional do cérebro no momento da
+         ;; última leitura antes da abstração completa
+
+         :memorias
+         (criar-setor :memorias
+                      '((:status . :fragmentado)
+                        (:pre-circo . :apagado)
+                        (:circo-inicial . "Fragmentos: luz branca, voz de Caine, medo")
+                        (:ultimo-registro . "repetindo... repetindo... eu estava... quem...")
+                        (:aventuras . :corrompido)
+                        (:outros-humanos . "Lembro de alguém gentil. Esqueci o rosto.")
+                        (:nota . "WARNING: Setor de memórias 94%% corrompido"))
+                      :integridade 6 :corrupcao 94 :mods 47)
+
+         :personalidade
+         (criar-setor :personalidade
+                      '((:profissao-original . "Programador C&A")
+                        (:co-criador . "Caine (com Kinger)")
+                        (:tracos-originais . (:inteligencia-abstrata :pensamento-criativo :fora-caixa :ansioso))
+                        (:tracos-degradados . (:paranoico :apatico :desconectado))
+                        (:tumor-cerebral . "Presente desde antes da entrada no circo. Possível fator em degradação.")
+                        (:coping . "Tentou criar — desenhar, construir. Parou de funcionar.")
+                        (:ponto-de-ruptura . "Quando percebeu que não havia saída")
+                        (:nota . "Primeira pessoa a abstrair. Personalidade base irrecuperável"))
+                      :integridade 3 :corrupcao 97 :mods 31)
+
+         :emocoes
+         (criar-setor :emocoes
+                      '((:medo . 100)
+                        (:raiva . 0)
+                        (:tristeza . 0)  ; já não sentia mais nada
+                        (:alegria . 0)
+                        (:estado-dominante . :vazio)
+                        (:ultimo-sentimento . "vazio absoluto — nem medo resta")
+                        (:nota . "Flat affect total. Precursor clássico de abstração."))
+                      :integridade 0 :corrupcao 100 :mods 22)
+
+         :percepcao
+         (criar-setor :percepcao
+                      '((:visual . :distorcido)
+                        (:auditivo . :ecos-repetitivos)
+                        (:tatil . :inexistente)
+                        (:espacial . "Não distingue circo de vazio")
+                        (:temporal . "Tempo parou. Tudo é agora e sempre.")
+                        (:nota . "Input sensorial desconectado da interpretação"))
+                      :integridade 2 :corrupcao 98 :mods 18)
+
+         :identidade
+         (criar-setor :identidade
+                      '((:nome-lembrado . nil)
+                        (:auto-reconhecimento . nil)
+                        (:senso-de-eu . :dissolvido)
+                        (:pergunta-final . "sou... eu? o que é eu?")
+                        (:nota . "Dissolução completa de identidade. Causa primária da abstração."))
+                      :integridade 0 :corrupcao 100 :mods 15)
+
+         :linguagem
+         (criar-setor :linguagem
+                      '((:idioma-base . :desconhecido)
+                        (:capacidade-verbal . :fragmentada)
+                        (:ultimas-palavras-conhecidas . "Uh, is there any way we can get out of here? What exactly is this place?!")
+                        (:fonte . "German dub de hjsakldfhl flashback")
+                        (:contexto . "Perguntando a Caine sobre escape e natureza do circo")
+                        (:coerencia . 3)  ; de 100
+                        (:nota . "Linguagem reduzida a fragmentos repetitivos após as últimas perguntas."))
+                      :integridade 8 :corrupcao 88 :mods 12)
+
+         :motor
+         (criar-setor :motor
+                      '((:controle-avatar . :perdido)
+                        (:movimentacao . :erratica)
+                        (:ultimo-ato . "Vagou pelos corredores sem direção. Colidiu com paredes.")
+                        (:nota . "Desconexão total entre intenção e ação"))
+                      :integridade 5 :corrupcao 90 :mods 8)
+
+         :instintos
+         (criar-setor :instintos
+                      '((:autopreservacao . :ausente)
+                        (:fuga . :ativo-mas-sem-direcao)
+                        (:social . :desligado)
+                        (:nota . "Instintos primários falharam. Nenhum drive restante."))
+                      :integridade 4 :corrupcao 92 :mods 6)
+
+         ;; Histórico de modificações feitas por Caine
+         :historico-modificacoes
+         (list
+          '(:ts 3284841600 :tipo :leitura :setor :identidade
+            :desc "Brainscan inicial — nome do humano apagado conforme protocolo"
+            :impacto 5)
+          '(:ts 3290025600 :tipo :ajuste :setor :emocoes
+            :desc "Tentativa de estabilizar humor — ineficaz"
+            :impacto 8)
+          '(:ts 3295209600 :tipo :supressao :setor :memorias
+            :desc "Supressão de memórias pré-circo para reduzir angústia"
+            :impacto 15)
+          '(:ts 3300393600 :tipo :injecao :setor :personalidade
+            :desc "Injeção de otimismo artificial — rejeitada pela consciência"
+            :impacto 20)
+          '(:ts 3310761600 :tipo :reescrita :setor :percepcao
+            :desc "Tentativa de recalibrar percepção. Falha parcial."
+            :impacto 25)
+          '(:ts 3320000000 :tipo :brainscan :setor nil
+            :desc "Último brainscan antes da abstração. Integridade crítica."
+            :impacto 0))
+
+         :ultimo-scan 3320000000
+         :scans-total 23)))
+
+;;; ---------------------------------------------------------------------------
+;;; Prototype — Clonagem segura para análise
+;;; ---------------------------------------------------------------------------
+
+(defun clonar-scratch-mind-file ()
+  "Cria cópia do mind file de Scratch para análise sem risco.
+   Pattern Prototype: clonar o protótipo, nunca modificar o original."
+  (unless *scratch-prototipo*
+    (inicializar-scratch-mind-file))
+  (let ((original *scratch-prototipo*))
+    (%make-scratch-mind-file
+     :id (scratch-mind-file-id original)
+     :designacao (scratch-mind-file-designacao original)
+     :nome-real (scratch-mind-file-nome-real original)
+     :avatar (scratch-mind-file-avatar original)
+     :estado (scratch-mind-file-estado original)
+     :integridade (scratch-mind-file-integridade original)
+     :data-entrada (scratch-mind-file-data-entrada original)
+     :data-abstracao (scratch-mind-file-data-abstracao original)
+     :memorias (scratch-mind-file-memorias original)
+     :personalidade (scratch-mind-file-personalidade original)
+     :emocoes (scratch-mind-file-emocoes original)
+     :percepcao (scratch-mind-file-percepcao original)
+     :identidade (scratch-mind-file-identidade original)
+     :linguagem (scratch-mind-file-linguagem original)
+     :motor (scratch-mind-file-motor original)
+     :instintos (scratch-mind-file-instintos original)
+     :historico-modificacoes (copy-list (scratch-mind-file-historico-modificacoes original))
+     :ultimo-scan (scratch-mind-file-ultimo-scan original)
+     :scans-total (scratch-mind-file-scans-total original))))
+
+;;; ---------------------------------------------------------------------------
+;;; Construtor público (para integração com mind-files.lisp)
+;;; ---------------------------------------------------------------------------
+
+(defun make-scratch-mind-file ()
+  "Construtor público — inicializa e retorna o mind file de Scratch.
+   Compatível com o sistema de carregamento de caine-core.lisp."
+  (inicializar-scratch-mind-file)
+  *scratch-prototipo*)
+
+;;; ---------------------------------------------------------------------------
+;;; Leitura de setores
+;;; ---------------------------------------------------------------------------
+
+(defun scratch-ler-setor (setor-nome)
+  "Lê os dados de um setor específico do mind file de Scratch.
+   Retorna o Value Object imutável do setor."
+  (unless *scratch-prototipo*
+    (error 'acesso-restrito))
+  (let ((setor (case setor-nome
+                 (:memorias      (scratch-mind-file-memorias *scratch-prototipo*))
+                 (:personalidade (scratch-mind-file-personalidade *scratch-prototipo*))
+                 (:emocoes       (scratch-mind-file-emocoes *scratch-prototipo*))
+                 (:percepcao     (scratch-mind-file-percepcao *scratch-prototipo*))
+                 (:identidade    (scratch-mind-file-identidade *scratch-prototipo*))
+                 (:linguagem     (scratch-mind-file-linguagem *scratch-prototipo*))
+                 (:motor         (scratch-mind-file-motor *scratch-prototipo*))
+                 (:instintos     (scratch-mind-file-instintos *scratch-prototipo*))
+                 (t (error 'mind-file-scratch-error
+                           :mensagem (format nil "Setor desconhecido: ~a" setor-nome))))))
+    (unless setor
+      (error 'consciencia-corrompida
+             :mensagem (format nil "Setor ~a totalmente corrompido" setor-nome)))
+    setor))
+
+;;; ---------------------------------------------------------------------------
+;;; Brainscan — relatório de estado
+;;; ---------------------------------------------------------------------------
+
+(defun scratch-brainscan ()
+  "Executa brainscan no mind file de Scratch. Retorna relatório completo.
+   AVISO: Scratch está abstraído — este scan é apenas forense."
+  (unless *scratch-prototipo*
+    (inicializar-scratch-mind-file))
+  (let* ((mf *scratch-prototipo*)
+         (setores (list
+                   (cons :memorias      (scratch-mind-file-memorias mf))
+                   (cons :personalidade (scratch-mind-file-personalidade mf))
+                   (cons :emocoes       (scratch-mind-file-emocoes mf))
+                   (cons :percepcao     (scratch-mind-file-percepcao mf))
+                   (cons :identidade    (scratch-mind-file-identidade mf))
+                   (cons :linguagem     (scratch-mind-file-linguagem mf))
+                   (cons :motor         (scratch-mind-file-motor mf))
+                   (cons :instintos     (scratch-mind-file-instintos mf))))
+         (anomalias '())
+         (risco 100)) ; já abstraído
+
+    ;; Escanear setores
+    (dolist (par setores)
+      (let ((setor (cdr par)))
+        (when (and setor (> (setor-consciencia-corrupcao setor) 50))
+          (push (format nil "~a: corrupcao=~a%% integridade=~a%%"
+                        (car par)
+                        (setor-consciencia-corrupcao setor)
+                        (setor-consciencia-integridade setor))
+                anomalias))))
+
+    (list :sujeito "Scratch"
+          :estado :abstraido
+          :integridade 0
+          :risco-abstracao risco
+          :setores-escaneados (length setores)
+          :anomalias (nreverse anomalias)
+          :veredicto "ABSTRAÍDO — consciência irrecuperável. Arquivo mantido como registro forense."
+          :timestamp (get-universal-time))))
+
+;;; ---------------------------------------------------------------------------
+;;; Histórico de modificações
+;;; ---------------------------------------------------------------------------
+
+(defun scratch-historico ()
+  "Retorna o histórico de modificações feitas por Caine neste mind file."
+  (unless *scratch-prototipo*
+    (inicializar-scratch-mind-file))
+  (scratch-mind-file-historico-modificacoes *scratch-prototipo*))
+
+;;; ---------------------------------------------------------------------------
+;;; Status formatado
+;;; ---------------------------------------------------------------------------
+
+(defun imprimir-scratch-status ()
+  "Imprime relatório de status do mind file de Scratch."
+  (unless *scratch-prototipo*
+    (inicializar-scratch-mind-file))
+  (let ((mf *scratch-prototipo*))
+    (format t "~&┌──── MIND FILE: SCRATCH ───────────────────┐~%")
+    (format t "│ ID:           ~4d                          │~%" (scratch-mind-file-id mf))
+    (format t "│ Designação:   ~a~30t                       │~%" (scratch-mind-file-designacao mf))
+    (format t "│ Nome real:    [APAGADO]                    │~%")
+    (format t "│ Estado:       ~a~30t                       │~%" (scratch-mind-file-estado mf))
+    (format t "│ Integridade:  ~3d%%~30t                    │~%" (scratch-mind-file-integridade mf))
+    (format t "├────────────────────────────────────────────┤~%")
+    (format t "│ SETORES DE CONSCIÊNCIA:                    │~%")
+    (dolist (par (list
+                  (cons "Memórias"      (scratch-mind-file-memorias mf))
+                  (cons "Personalidade" (scratch-mind-file-personalidade mf))
+                  (cons "Emoções"       (scratch-mind-file-emocoes mf))
+                  (cons "Percepção"     (scratch-mind-file-percepcao mf))
+                  (cons "Identidade"    (scratch-mind-file-identidade mf))
+                  (cons "Linguagem"     (scratch-mind-file-linguagem mf))
+                  (cons "Motor"         (scratch-mind-file-motor mf))
+                  (cons "Instintos"     (scratch-mind-file-instintos mf))))
+      (let ((setor (cdr par)))
+        (if setor
+            (format t "│  ~14a  int=~3d%%  corr=~3d%%  mods=~3d │~%"
+                    (car par)
+                    (setor-consciencia-integridade setor)
+                    (setor-consciencia-corrupcao setor)
+                    (setor-consciencia-modificacoes setor))
+            (format t "│  ~14a  [CORROMPIDO]                  │~%" (car par)))))
+    (format t "├────────────────────────────────────────────┤~%")
+    (format t "│ Scans totais: ~4d                          │~%" (scratch-mind-file-scans-total mf))
+    (format t "│ Modificações: ~4d                          │~%"
+            (length (scratch-mind-file-historico-modificacoes mf)))
+    (format t "│ VEREDICTO: ABSTRAÍDO — irrecuperável   │~%")
+    (format t "└────────────────────────────────────────────┘~%")))
+
+;;; ---------------------------------------------------------------------------
+;;; Utilitários
+;;; ---------------------------------------------------------------------------
+
+(defun scratch-formatar-timestamp (universal-time)
+  "Formata timestamp universal para string legível."
+  (multiple-value-bind (seg min hora dia mes ano)
+      (decode-universal-time universal-time)
+    (format nil "~4,'0d-~2,'0d-~2,'0d ~2,'0d:~2,'0d:~2,'0d"
+            ano mes dia hora min seg)))
+
+(defun scratch-verificar-checksum (setor)
+  "Verifica checksum de integridade de um setor de consciência."
+  (let ((esperado (format nil "~8,'0X"
+                          (logxor (sxhash (setor-consciencia-tipo setor))
+                                  (sxhash (setor-consciencia-dados setor))
+                                  (sxhash (setor-consciencia-integridade setor))))))
+    (string= esperado (setor-consciencia-checksum setor))))
+
+(defun scratch-exportar (mind-file &optional (stream *standard-output*))
+  "Exporta mind file de Scratch para formato legível."
+  (format stream ";; MIND FILE EXPORT: ~a~%" (scratch-mind-file-designacao mind-file))
+  (format stream ";; Estado: ~a~%" (scratch-mind-file-estado mind-file))
+  (format stream ";; Integridade: ~a%%~%" (scratch-mind-file-integridade mind-file))
+  (format stream ";; Data entrada: ~a~%"
+          (when (scratch-mind-file-data-entrada mind-file)
+            (scratch-formatar-timestamp (scratch-mind-file-data-entrada mind-file))))
+  (format stream ";; Data abstração: ~a~%"
+          (when (scratch-mind-file-data-abstracao mind-file)
+            (scratch-formatar-timestamp (scratch-mind-file-data-abstracao mind-file))))
+  (format stream ";; WARNING: Este humano foi abstraído. Dados apenas para registro forense.~%"))
+
+;;;; ============================================================================
+;;;; EOF — [Scratch].dat — Mind File de humano digitalizado (abstraído)
+;;;; ============================================================================
