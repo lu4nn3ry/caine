@@ -165,15 +165,15 @@
                                       (make-message "user"
                                                     (format nil "Escreva uma canção completa no formato .lyrics sobre o tema '~a' no estilo '~a'."
                                                             theme style)))))
-                          (setf (gethash "tools_enabled" (config-table cfg)) nil)
+                          (setf (gethash "tools_enabled" cfg) :false)
                           (multiple-value-bind (resp finish)
-                              (request-chat cfg msgs)
+                              (request-chat cfg (coerce msgs 'vector))
                             (declare (ignore finish))
                             (let ((content (json-get resp "content")))
                               (if (and content (plusp (length content)))
                                   (progn
                                     (ensure-directories-exist out)
-                                    (write-file-string out content)
+                                    (string->file out content)
                                     (format nil "Letra gerada com sucesso via NIM (~a) em ~a~%~a"
                                             (or artist "geral") out content))
                                   "Erro: modelo não retornou conteúdo."))))
@@ -211,7 +211,7 @@
                            :output :string :error-output :string
                            :ignore-error-status t)
                         (if (zerop code)
-                            (format nil "Letra gerada via template local em ~a~%~a" out (or out-str ""))
+                            (format nil "Letra gerada com sucesso em ~a~%~a" out (or out-str ""))
                             (format nil "Erro ao gerar letra (code ~a):~%~a" code (or err-str out-str ""))))))))))
 
   (registrar-tool "edit_lyrics"

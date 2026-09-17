@@ -36,6 +36,10 @@
    #:convert-seedvc
    #:convert-applio
    #:tts-gpt-sovits
+   #:tts-cosyvoice
+   #:render-diffsinger
+   #:diffsinger-bin
+   #:generate-acestep
    ;; midi / transcrição / svs
    #:midi-home
    #:midi-pronto-p
@@ -126,6 +130,7 @@
    #:gerar-letra-artista
    #:artista-outdir
    #:artista-voz-ref
+   #:artista-voicebank
    #:alinhar-versao-artista
    #:produzir-versao-artista
    #:produzir-album-artistas))

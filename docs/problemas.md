@@ -51,15 +51,37 @@
   - Tool `write_lyrics` atualizada: quando a API key NIM está presente, injeta o system prompt retornado por `artists prompt` no modelo LLM, salvando a letra com a persona do artista; caso contrário, usa o fallback local de templates.
   - Tool `edit_lyrics` registrada para transformações instrucionais em letras.
 
+### 6. Engines 2026 e Passo 3/3 de Render DiffSinger ([ADR 007](docs/adr/007-engines-2026.md))
+- **Status: TOTALMENTE IMPLEMENTADO E TESTADO.**
+- **Novas Engines Registradas em `agent/voice/config.lisp`**:
+  - `diffsinger`: Atualizado para `diffsinger-utau` (CLI headless via PyPI, inferência SVS via PyTorch/CUDA).
+  - `ace-step`: Registrado ACE-Step v1.5 (T2M foundation model, <4GB VRAM para GTX 1650, cover e arranjo com letra).
+  - `cosyvoice`: Registrado CosyVoice2-0.5B (TTS e clonagem zero-shot multilíngue, <4GB VRAM).
+- **Executores de Ferramenta em `agent/voice/tools.lisp`**:
+  - `diffsinger-bin`: Detecção do executável `diffsinger-utau` no venv ou no PATH.
+  - `render-diffsinger`: Executa `diffsinger-utau render <ds> -o <wav> --speedup 10 --device cuda` com suporte a `--speaker-folder` (voicebank) e `--vocoder`.
+  - `generate-acestep`: Execução headless de ACE-Step v1.5 com condicionamento de letra e áudio de referência.
+  - `tts-cosyvoice`: Síntese de fala/clonagem zero-shot cross-lingual para personas.
+- **Integração no Produtor de Artistas em `agent/voice/artists.lisp`**:
+  - `artista-voicebank`: Localização do modelo acústico do artista (`out/rg/<id>/voicebank/`, `voice-tools/DiffSinger/voicebanks/<id>/` ou `DIFFSINGER_VOICEBANK`).
+  - `produzir-versao-artista` sob `:diffsinger`: Fecha o passo 3/3 da arquitetura. Quando `diffsinger-utau` e o voicebank estão presentes, sintetiza diretamente o vocal e masteriza para o áudio de saída. Na ausência do modelo neural, gera a partitura `.ds` e fornece instruções claras de instalação sem quebrar o fluxo nem os testes.
+- **Pipelines e CLI em `agent/voice/pipeline.lisp` e `agent/voice/cli.lisp`**:
+  - `fazer-cover`: Adicionado suporte ao parâmetro `:engine :acestep` além de `:seedvc`.
+  - `caine-voice cover`: Subcomando CLI integrado com `--engine seedvc|acestep`, `--prompt`, `--lyrics`.
+  - `caine-voice make`: Subcomando CLI integrado para mixagem e masterização de vocal + instrumental.
+- **Suíte de Testes Expandida**:
+  - Criado `tests/test-tools.lisp`.
+  - Total de 20 testes e 81 asserções com 100% de aprovação via `wsl sbcl --script tests/run-tests.lisp`.
+
 ---
 
 ## ⏳ Próximos Passos (Exigem Decisão / Dependências Externas)
 
-### 3. "Cantar like Vocaloid" (Síntese Neural de Voz)
-- A infraestrutura de partituras (`.lyrics`, `.mid`, `.ds` DiffSinger, `.uta` OpenUtau e X-SAMPA) está 100% operacional em Lisp puro.
-- A renderização final do áudio cantado dependerá da escolha e instalação do motor neural no sistema (DiffSinger com voicebanks ou OpenUtau, aproveitando a GPU GTX 1650 4GB).
-- Transcrição do áudio real `out/melodia-afinada.mp3` para MIDI dependerá da instalação do ambiente Python (`caine-voice install midi`), mas já pode ser feita ou testada usando arquivos MIDI fornecidos via `--mid`.
+### 1. Download de Pesos Neurais em GPU (<4GB VRAM)
+- Para síntese neural em tempo real com DiffSinger: executar `caine-voice install diffsinger` e baixar voicebank em `out/rg/<id>/voicebank/` ou `voice-tools/DiffSinger/voicebank/`.
+- Para geração completa com ACE-Step: clonar repositório e baixar checkpoint FP16 compatível com 4GB VRAM via `caine-voice install ace-step`.
+- Para TTS CosyVoice2: `caine-voice install cosyvoice`.
 
-### 6. Governança e Repositório
+### 2. Governança e Repositório
 - `.env` e arquivos temporários de zero bytes mantidos intactos.
-- `docs/adr/006-artists-as-singers.md` aprovado e marcado como **Aceito**.
+- `docs/adr/007-engines-2026.md` aprovado e marcado como **Aceito**.

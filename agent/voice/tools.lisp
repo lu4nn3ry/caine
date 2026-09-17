@@ -178,3 +178,102 @@
                out)))
       (when (and proc (uiop:process-alive-p proc))
         (uiop:terminate-process proc)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Tarefa: SVS DiffSinger (OpenVPI / diffsinger-utau, ADR 007)
+;;; ---------------------------------------------------------------------------
+
+(defun diffsinger-bin (&optional tool)
+  "Localiza o executável diffsinger-utau (no venv da ferramenta ou no PATH)."
+  (let* ((t-obj (or tool (obter-ferramenta "diffsinger")))
+         (v-bin (and t-obj (merge-pathnames "bin/diffsinger-utau" (venv-dir t-obj)))))
+    (cond
+      ((and v-bin (probe-file v-bin))
+       (namestring v-bin))
+      (t
+       (multiple-value-bind (out err code)
+           (run-cmd '("which" "diffsinger-utau") :capture t)
+         (declare (ignore err))
+         (if (zerop code)
+             (string-trim '(#\Space #\Newline #\Return) out)
+             nil))))))
+
+(defun render-diffsinger (ds-path out-wav &key voicebank vocoder (speedup 10) (device "cuda"))
+  "Renderiza arquivo de partitura .ds para OUT-WAV usando diffsinger-utau.
+   - DS-PATH: caminho para o arquivo .ds alinhado
+   - VOICEBANK: diretório do voicebank (speaker/acoustic model)
+   - VOCODER: diretório do vocoder (ex: nsf_hifigan)
+   - SPEEDUP: fator de aceleração DPM-Solver/UniPC (padrão 10)
+   - DEVICE: 'cuda' (padrão para GPU 4GB) ou 'cpu'
+   Retorna (values out-wav code)."
+  (let ((bin (diffsinger-bin)))
+    (unless bin
+      (error "diffsinger-utau não encontrado. Rode: caine-voice install diffsinger"))
+    (ensure-out-dir out-wav)
+    (let ((args (append (list bin "render" (namestring ds-path)
+                              "-o" (namestring out-wav)
+                              "--speedup" (princ-to-string speedup)
+                              "--device" device)
+                        (when voicebank (list "--speaker-folder" (namestring voicebank)))
+                        (when vocoder (list "--vocoder" (namestring vocoder))))))
+      (multiple-value-bind (o e code) (run-cmd args :capture nil :verbose t)
+        (declare (ignore o e))
+        (values out-wav code)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Tarefa: ACE-Step v1.5 (Text-to-Music / Cover <4GB VRAM, ADR 007)
+;;; ---------------------------------------------------------------------------
+
+(defun generate-acestep (prompt out &key lyrics ref-audio (duration 60) (steps 25))
+  "Gera áudio ou cover musical com ACE-Step v1.5 (<4GB VRAM).
+   - PROMPT: descrição textual do arranjo/estilo
+   - LYRICS: texto ou caminho para arquivo de letra (.lyrics)
+   - REF-AUDIO: áudio de referência (melodia afinada ou faixa base para cover)
+   Retorna (values out code)."
+  (let ((tool (obter-ferramenta "ace-step")))
+    (unless (ferramenta-pronta-p tool)
+      (error "ACE-Step v1.5 não instalado. Rode: caine-voice install ace-step"))
+    (ensure-out-dir out)
+    (let ((args (append (list (venv-python tool)
+                              (namestring (merge-pathnames (ferramenta-entry tool)
+                                                           (ferramenta-dir tool)))
+                              "--prompt" prompt
+                              "--output" (namestring out)
+                              "--duration" (princ-to-string duration)
+                              "--steps" (princ-to-string steps))
+                        (when lyrics
+                          (if (probe-file lyrics)
+                              (list "--lyrics-file" (namestring lyrics))
+                              (list "--lyrics" lyrics)))
+                        (when ref-audio
+                          (list "--ref-audio" (namestring ref-audio))))))
+      (multiple-value-bind (o e code)
+          (run-cmd args :directory (namestring (ferramenta-dir tool)) :capture nil)
+        (declare (ignore o e))
+        (values out code)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Tarefa: CosyVoice2-0.5B (TTS / Clonagem Zero-Shot <4GB VRAM, ADR 007)
+;;; ---------------------------------------------------------------------------
+
+(defun tts-cosyvoice (text ref-audio out &key (prompt-text "") (mode :cross-lingual))
+  "Sintetiza fala/voz para personas com CosyVoice2-0.5B.
+   Clona o timbre vocal de REF-AUDIO para falar TEXT em OUT.
+   Retorna (values out code)."
+  (let ((tool (obter-ferramenta "cosyvoice")))
+    (unless (ferramenta-pronta-p tool)
+      (error "CosyVoice2 não instalado. Rode: caine-voice install cosyvoice"))
+    (ensure-out-dir out)
+    (let ((args (list (venv-python tool)
+                      (namestring (merge-pathnames (ferramenta-entry tool)
+                                                   (ferramenta-dir tool)))
+                      "--text" text
+                      "--ref-audio" (namestring ref-audio)
+                      "--prompt-text" prompt-text
+                      "--mode" (string-downcase (symbol-name mode))
+                      "--output" (namestring out))))
+      (multiple-value-bind (o e code)
+          (run-cmd args :directory (namestring (ferramenta-dir tool)) :capture nil)
+        (declare (ignore o e))
+        (values out code)))))
+

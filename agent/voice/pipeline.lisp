@@ -51,38 +51,53 @@
 
 (defun fazer-cover (musica voz-alvo out
                     &key (model "htdemucs") (diffusion-steps 30)
-                      (lufs -14.0) (workdir nil))
-  "Cria um cover de MUSICA com o timbre de VOZ-ALVO:
-   1) separa vocal/instrumental (Demucs);
-   2) converte a voz para VOZ-ALVO (seed-vc, preservando melodia/letra);
-   3) remixa e masteriza em OUT.
+                      (lufs -14.0) (workdir nil) (engine :seedvc)
+                      (prompt "full arrangement with vocals in style of original")
+                      (lyrics nil))
+  "Cria um cover de MUSICA:
+   - ENGINE :seedvc: converte o timbre de vocal para VOZ-ALVO (Demucs + seed-vc)
+   - ENGINE :acestep: regenera cover musical usando ACE-Step v1.5 (<4GB VRAM, ADR 007)
    Retorna o caminho de OUT."
   (ensure-out-dir out)
-  (let* ((work (or workdir
-                   (merge-pathnames "caine-voice-cover/"
-                                    (uiop:pathname-directory-pathname out))))
-         (stems-dir (merge-pathnames "stems/" work))
-         (base (slug musica)))
-    (println "== 1/3 separando stems de ~a" (namestring musica))
-    (let ((code (stems-demucs musica stems-dir :model model :two-stems "vocals")))
-      (unless (zerop code) (error "Demucs falhou (exit ~a)" code)))
-    (let* ((track-dir (merge-pathnames (format nil "~a/~a/" model base) stems-dir))
-           (vocal (merge-pathnames "vocals.wav" track-dir))
-           (instrumental (merge-pathnames "no_vocals.wav" track-dir))
-           (conv-dir (merge-pathnames "converted/" work)))
-      (unless (probe-file vocal)
-        (error "vocal não encontrado em ~a" (namestring vocal)))
-      (println "== 2/3 convertendo voz para ~a" (namestring voz-alvo))
-      (let ((code (convert-seedvc vocal voz-alvo conv-dir
-                                  :diffusion-steps diffusion-steps
-                                  :convert-style t)))
-        (unless (zerop code) (error "seed-vc falhou (exit ~a)" code)))
-      (let ((vocal-conv (newest-wav conv-dir)))
-        (unless vocal-conv (error "saída do seed-vc não encontrada em ~a"
-                                  (namestring conv-dir)))
-        (println "== 3/3 remixando e masterizando → ~a" (namestring out))
-        (mix-audio vocal-conv instrumental out :lufs lufs)
-        out))))
+  (if (eq engine :acestep)
+      (progn
+        (println "== gerando cover com ACE-Step v1.5 (<4GB VRAM)")
+        (multiple-value-bind (res code)
+            (generate-acestep (or prompt "cover track with musical accompaniment")
+                             out
+                             :lyrics lyrics
+                             :ref-audio musica
+                             :steps diffusion-steps)
+          (declare (ignore res))
+          (unless (zerop code) (error "ACE-Step falhou (exit ~a)" code))
+          out))
+      (let* ((work (or workdir
+                       (merge-pathnames "caine-voice-cover/"
+                                        (uiop:pathname-directory-pathname out))))
+             (stems-dir (merge-pathnames "stems/" work))
+             (base (slug musica)))
+        (unless voz-alvo
+          (error "forneça :voz-alvo para cover com engine :seedvc"))
+        (println "== 1/3 separando stems de ~a" (namestring musica))
+        (let ((code (stems-demucs musica stems-dir :model model :two-stems "vocals")))
+          (unless (zerop code) (error "Demucs falhou (exit ~a)" code)))
+        (let* ((track-dir (merge-pathnames (format nil "~a/~a/" model base) stems-dir))
+               (vocal (merge-pathnames "vocals.wav" track-dir))
+               (instrumental (merge-pathnames "no_vocals.wav" track-dir))
+               (conv-dir (merge-pathnames "converted/" work)))
+          (unless (probe-file vocal)
+            (error "vocal não encontrado em ~a" (namestring vocal)))
+          (println "== 2/3 convertendo voz para ~a" (namestring voz-alvo))
+          (let ((code (convert-seedvc vocal voz-alvo conv-dir
+                                      :diffusion-steps diffusion-steps
+                                      :convert-style t)))
+            (unless (zerop code) (error "seed-vc falhou (exit ~a)" code)))
+          (let ((vocal-conv (newest-wav conv-dir)))
+            (unless vocal-conv (error "saída do seed-vc não encontrada em ~a"
+                                      (namestring conv-dir)))
+            (println "== 3/3 remixando e masterizando → ~a" (namestring out))
+            (mix-audio vocal-conv instrumental out :lufs lufs)
+            out)))))
 
 (defun cantar-melodia (audio out
                        &key voz (engine :poly) (programa 54) (steps 30) (semi 0)

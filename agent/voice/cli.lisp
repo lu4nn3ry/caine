@@ -66,8 +66,8 @@ Artistas (ADR 006):
                             gera arquivo MIDI mock para teste/alinhamento offline
 
 Pipelines:
-  caine-voice make  --inst <f> --out <f> (--vocal <f> | --voice-ref <voz> --text \"...\")
-  caine-voice cover --in <f> --voice <voz> --out <f> [--steps 30] [--lufs -14]
+  caine-voice make  --out <f> [--inst <f>] (--vocal <f> | --voice-ref <voz> --text \"...\")
+  caine-voice cover --in <f> --out <f> [--voice <voz>] [--engine seedvc|acestep] [--prompt <texto>] [--lyrics <f.lyrics>]
 
 Env: CAINE_VOICE_HOME (padrão ~/voice-tools/) · CAINE_SOUNDFONT")
 
@@ -223,37 +223,54 @@ Env: CAINE_VOICE_HOME (padrão ~/voice-tools/) · CAINE_SOUNDFONT")
 
 (defun cmd-make (args)
   (let ((inst (flag-value args "--inst"))
-        (vocal (flag-value args "--vocal"))
-        (ref (flag-value args "--voice-ref"))
-        (text (flag-value args "--text"))
         (out (flag-value args "--out"))
-        (lufs (flag-value args "--lufs" "-14")))
-    (unless out
-      (println "Uso: caine-voice make --inst <f> --out <f> (--vocal <f> | --voice-ref <voz> --text \"...\")")
+        (vocal (flag-value args "--vocal"))
+        (voice-ref (flag-value args "--voice-ref"))
+        (text (flag-value args "--text"))
+        (lufs (flag-value args "--lufs" "-14.0"))
+        (vocal-db (flag-value args "--vocal-db" "0.0"))
+        (inst-db (flag-value args "--inst-db" "-3.0")))
+    (unless (and out (or vocal (and voice-ref text)))
+      (println "Uso: caine-voice make --out <f.wav> [--inst <f.wav>] (--vocal <f.wav> | --voice-ref <voz> --text \"...\") [--lufs -14] [--vocal-db 0] [--inst-db -3]")
       (return-from cmd-make 1))
     (handler-case
-        (progn
-          (criar-musica inst out :vocal vocal :voice-ref ref :texto text
-                        :lufs (read-from-string lufs))
-          (println "faixa pronta: ~a" out)
+        (let ((lufs-val (or (ignore-errors (read-from-string lufs)) -14.0))
+              (vocal-val (or (ignore-errors (read-from-string vocal-db)) 0.0))
+              (inst-val (or (ignore-errors (read-from-string inst-db)) -3.0)))
+          (criar-musica inst out
+                        :vocal vocal
+                        :voice-ref voice-ref
+                        :texto text
+                        :lufs lufs-val
+                        :vocal-db vocal-val
+                        :inst-db inst-val)
+          (println "faixa produzida em ~a" out)
           0)
       (error (e) (println "erro: ~a" e) 1))))
 
 (defun cmd-cover (args)
-  (let ((in (flag-value args "--in"))
+  (let ((in (or (flag-value args "--in") (first args)))
         (voice (flag-value args "--voice"))
         (out (flag-value args "--out"))
+        (engine-str (flag-value args "--engine" "seedvc"))
         (steps (flag-value args "--steps" "30"))
-        (lufs (flag-value args "--lufs" "-14")))
-    (unless (and in voice out)
-      (println "Uso: caine-voice cover --in <f> --voice <voz> --out <f>")
+        (lufs (flag-value args "--lufs" "-14.0"))
+        (prompt (flag-value args "--prompt"))
+        (lyrics (flag-value args "--lyrics")))
+    (unless (and in out)
+      (println "Uso: caine-voice cover --in <audio> --out <f.wav> [--voice <voz>] [--engine seedvc|acestep] [--steps 30] [--lufs -14] [--prompt <texto>] [--lyrics <f.lyrics>]")
       (return-from cmd-cover 1))
     (handler-case
-        (progn
+        (let ((engine (if (string-equal engine-str "acestep") :acestep :seedvc))
+              (steps-val (or (parse-integer steps :junk-allowed t) 30))
+              (lufs-val (or (ignore-errors (read-from-string lufs)) -14.0)))
           (fazer-cover in voice out
-                       :diffusion-steps (parse-integer steps)
-                       :lufs (read-from-string lufs))
-          (println "cover pronto: ~a" out)
+                       :engine engine
+                       :diffusion-steps steps-val
+                       :lufs lufs-val
+                       :prompt prompt
+                       :lyrics lyrics)
+          (println "cover salvo em ~a" out)
           0)
       (error (e) (println "erro: ~a" e) 1))))
 
@@ -607,7 +624,7 @@ Env: CAINE_VOICE_HOME (padrão ~/voice-tools/) · CAINE_SOUNDFONT")
            (error (e) (println "erro: ~a" e) 1))))
       (t (println "Comando desconhecido: ~a" sub)
          (println "Uso: caine-voice artists <list|write|prompt|sing|album> [args]")
-         1))))
+          1))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Dispatch

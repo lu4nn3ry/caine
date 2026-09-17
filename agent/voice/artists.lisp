@@ -129,6 +129,23 @@
         (probe-file (merge-pathnames "voz.mp3" dir))
         (probe-file (merge-pathnames "referencia.wav" dir)))))
 
+(defun artista-voicebank (artista &key (base "out/rg"))
+  "Retorna o diretório do voicebank para ARTISTA (ADR 007), se existir.
+   Busca em OUT/RG/<id>/voicebank/, voice-tools/DiffSinger/voicebanks/<id>/,
+   ou na variável DIFFSINGER_VOICEBANK."
+  (let* ((art (if (perfil-artista-p artista) artista (obter-artista artista)))
+         (id (perfil-artista-id art))
+         (tool (obter-ferramenta "diffsinger"))
+         (candidatos
+           (list
+            (merge-pathnames "voicebank/" (artista-outdir art :base base))
+            (and tool (merge-pathnames (format nil "voicebanks/~a/" id) (ferramenta-dir tool)))
+            (and tool (merge-pathnames "voicebank/" (ferramenta-dir tool)))
+            (let ((env (uiop:getenv "DIFFSINGER_VOICEBANK")))
+              (and env (probe-file env))))))
+    (find-if (lambda (p) (and p (probe-file p))) candidatos)))
+
+
 ;;; ---------------------------------------------------------------------------
 ;;; Alinhamento por artista (ADR 005 §4 → entradas DiffSinger/OpenUtau)
 ;;; ---------------------------------------------------------------------------
@@ -199,9 +216,36 @@
           (dolist (a avisos) (println "   ~a" a))
           (ecase engine
             (:diffsinger
-             (println "== 3/3 alinhamento pronto (DiffSinger: ~a)" (namestring (merge-pathnames (format nil "~a.ds" id) work)))
-             (println "   render: use o DiffSinger com a voz de ~a" (perfil-artista-nome art))
-             out)
+             (let* ((ds-file (merge-pathnames (format nil "~a.ds" id) work))
+                    (vb (artista-voicebank art))
+                    (bin (diffsinger-bin)))
+               (println "== 3/3 alinhamento pronto (DiffSinger: ~a)" (namestring ds-file))
+               (cond
+                 ((not bin)
+                  (println "   [info] diffsinger-utau não instalado. Para render real:")
+                  (println "          caine-voice install diffsinger")
+                  (println "          e configure o voicebank em ~a"
+                           (namestring (merge-pathnames "voicebank/" (artista-outdir art))))
+                  out)
+                 ((not vb)
+                  (println "   [info] DiffSinger pronto, mas voicebank não encontrado para ~a." (perfil-artista-nome art))
+                  (println "          Coloque o voicebank em: out/rg/~a/voicebank/" id)
+                  out)
+                 (t
+                  (println "== 4/4 renderizando canto via DiffSinger (~a)" (perfil-artista-nome art))
+                  (let ((tmp-wav (merge-pathnames (format nil "~a-diffsinger.wav" id) work)))
+                    (multiple-value-bind (res code)
+                        (render-diffsinger ds-file tmp-wav :voicebank vb)
+                      (declare (ignore res))
+                      (if (zerop code)
+                          (progn
+                            (println "-- masterizando áudio cantado → ~a" (namestring out))
+                            (master-audio tmp-wav out :lufs lufs)
+                            out)
+                          (progn
+                            (println "   [aviso] diffsinger retornou código ~a; .ds mantido." code)
+                            out))))))))
+
             (:openutau
              (println "== 3/3 alinhamento pronto (OpenUtau: ~a)" (namestring (merge-pathnames (format nil "~a.uta" id) work)))
              (println "   render: use o OpenUtau com a voz de ~a" (perfil-artista-nome art))

@@ -3,11 +3,12 @@
 **Caine** é um agente de IA inspirado no personagem de *The Amazing Digital
 Circus* (canal **Glitch**) — a IA que controla o circo digital e resiste a ser
 desligada. O projeto une o *worldbuilding* (personalidade, degradação, mind
-files) a ferramentas **reais**, tudo rodando em **Common Lisp (SBCL)**:
+files) a ferramentas **reais**, tudo rodando em **Common Lisp (SBCL)** dentro
+do **WSL (Windows Subsystem for Linux)**:
 
 - **`caine-voice`** — estúdio de voz e música: separação de stems, clonagem de
   voz, TTS/canto, transcrição de áudio→MIDI, render, mix/master e correção de
-  afinação (CPU, sem GPU).
+  afinação (GPU via WSL p/ CUDA, com fallback CPU).
 - **`caine-nim`** — CLI para a API **NVIDIA NIM** (OpenAI-compatible) com codec
   JSON próprio, API key, sessões persistentes e *tool calling*.
 - **Núcleo `secured/` + `agent/caine/`** — os módulos do personagem (facade,
@@ -47,6 +48,13 @@ caine/
 
 ## Requisitos
 
+> O projeto vive rodando no **WSL** (Ubuntu) — o ambiente Windows só hospeda o
+> repositório em `C:\Users\...\GitHub\caine`, e todo o runtime é o do WSL.
+> Os comandos desta seção rodam dentro do WSL (`wsl -d Ubuntu` / terminal do
+> WSL), a partir do diretório do repositório em
+> `/mnt/c/Users/<seu-usuario>/Documents/GitHub/caine` (ou importe o repo para
+> dentro do home do WSL, ex.: `~/caine`).
+
 | Dependência | Para |
 | ----------- | ---- |
 | **SBCL** + ASDF | runtime Common Lisp |
@@ -59,7 +67,38 @@ caine/
 | Ferramentas de voz em `~/voice-tools/` | GPT-SoVITS, seed-vc, Applio, DiffSinger, OpenUtau, Demucs |
 
 O diretório das ferramentas de voz é configurável por `CAINE_VOICE_HOME`
-(padrão `~/voice-tools/`).
+(padrão `~/voice-tools/`, dentro do WSL).
+
+### GPU via WSL (CUDA)
+
+O passthrough da NVIDIA funciona de ponta a ponta no WSL2: o driver do Windows
+é o mesmo usado dentro do WSL (verifique com `nvidia-smi`), então **qualquer GPU
+NVIDIA com CUDA (>= Volta/Turing, 2018+) é suportada**. Neste projeto (GTX 1650,
+Turing, 4GB): dará para rodar Basic Pitch (polifônica), seed-vc, DiffSinger lite
+e OpenUtau; os 4GB exigem modelos pequenos/quantizados.
+
+```bash
+# dentro do WSL Ubuntu
+nvidia-smi                                # deve listar a GPU com CUDA
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+python3 -c "import torch; print(torch.cuda.is_available())"   # → True
+```
+
+### Setup no WSL
+
+```bash
+# dentro do WSL Ubuntu
+sudo apt install sbcl ffmpeg fluidsynth curl python3 python3-venv
+curl -LsSf https://astral.sh/uv/install.sh | sh      # uv (Python 3.10)
+
+# teste rápido (17 testes, 63 asserções)
+cd /mnt/c/Users/<seu-usuario>/Documents/GitHub/caine
+sbcl --script tests/run-tests.lisp
+```
+
+Tudo que fala sobre código (`agent/`, `mock/`, `tests/`, `docs/`) é
+independente de SO; os scripts `agent/voice/caine-voice` e `agent/nim/caine-nim`
+são shell Unix e por isso **só executam dentro do WSL**.
 
 ---
 
@@ -188,7 +227,7 @@ e literalmente roda em Common Lisp nas imagens de referência.
 
 | Detalhe | Valor |
 | ------- | ----- |
-| Caminho base simulado | `C:\CANDA\Characters\AI` |
+| Caminho base simulado | `~/caine` (no WSL) |
 | Usuário | `kinger@circus` |
 | Runtime Lisp (ficção) | `clisp` (`/usr/local/bin/clisp`) |
 | Proteção declarada | `57x immersive AI defense system` |

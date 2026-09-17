@@ -25,7 +25,10 @@
 (load (merge-pathnames "agent/voice/audio.lisp" *base-dir*))
 (load (merge-pathnames "agent/voice/midi.lisp" *base-dir*))
 (load (merge-pathnames "agent/voice/lyrics.lisp" *base-dir*))
+(load (merge-pathnames "agent/voice/tools.lisp" *base-dir*))
+(load (merge-pathnames "agent/voice/pipeline.lisp" *base-dir*))
 (load (merge-pathnames "agent/voice/artists.lisp" *base-dir*))
+(load (merge-pathnames "agent/voice/cli.lisp" *base-dir*))
 
 ;; 2. Módulo Mock
 (load (merge-pathnames "mock/melody.lisp" *base-dir*))
@@ -35,6 +38,7 @@
 (load (merge-pathnames "tests/test-lyrics.lisp" *base-dir*))
 (load (merge-pathnames "tests/test-midi.lisp" *base-dir*))
 (load (merge-pathnames "tests/test-artists.lisp" *base-dir*))
+(load (merge-pathnames "tests/test-tools.lisp" *base-dir*))
 
 ;; 4. Gerar arquivos mock em mock/
 (caine.mock:gerar-arquivos-mock (merge-pathnames "mock/" *base-dir*))

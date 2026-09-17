@@ -52,9 +52,19 @@
     :descricao "Voice conversion estilo RVC, treino e inferência fáceis.")
    (%make-ferramenta
     :id "diffsinger" :nome "DiffSinger" :dir-name "DiffSinger"
-    :entry "scripts/" :tipo :svs :licenca "Apache-2.0"
+    :entry "bin/diffsinger-utau" :tipo :svs :licenca "Apache-2.0"
+    :pip "diffsinger-utau"
+    :descricao "Singing Voice Synthesis avançada (OpenVPI / diffsinger-utau headless CLI, CUDA).")
+   (%make-ferramenta
+    :id "ace-step" :nome "ACE-Step v1.5" :dir-name "ace-step"
+    :entry "main.py" :tipo :t2m :licenca "Apache-2.0"
     :requirements "requirements.txt"
-    :descricao "Singing Voice Synthesis avançada (MIDI + letra → canto).")
+    :descricao "Text-to-music foundation model (<4GB VRAM), geração e cover com letra.")
+   (%make-ferramenta
+    :id "cosyvoice" :nome "CosyVoice2-0.5B" :dir-name "CosyVoice"
+    :entry "cosyvoice/cli/cosyvoice.py" :tipo :tts :licenca "Apache-2.0"
+    :requirements "requirements.txt"
+    :descricao "TTS e clonagem zero-shot multilíngue (<4GB VRAM) para personas.")
    (%make-ferramenta
     :id "openutau" :nome "OpenUtau" :dir-name "OpenUtau"
     :entry "OpenUtau.sln" :tipo :svs :licenca "MIT"
