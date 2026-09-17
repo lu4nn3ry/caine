@@ -1,159 +1,201 @@
 # caine
 
-## Tudo que aparece nas imagens
+**Caine** é um agente de IA inspirado no personagem de *The Amazing Digital
+Circus* (canal **Glitch**) — a IA que controla o circo digital e resiste a ser
+desligada. O projeto une o *worldbuilding* (personalidade, degradação, mind
+files) a ferramentas **reais**, tudo rodando em **Common Lisp (SBCL)**:
+
+- **`caine-voice`** — estúdio de voz e música: separação de stems, clonagem de
+  voz, TTS/canto, transcrição de áudio→MIDI, render, mix/master e correção de
+  afinação (CPU, sem GPU).
+- **`caine-nim`** — CLI para a API **NVIDIA NIM** (OpenAI-compatible) com codec
+  JSON próprio, API key, sessões persistentes e *tool calling*.
+- **Núcleo `secured/` + `agent/caine/`** — os módulos do personagem (facade,
+  percepção, degradação, censura, minds files) que dão vida ao ARG.
 
 ---
 
-### Imagem 1 — Terminal, listagem de arquivos
-
-**Barra de título do CMD:**
+## Estrutura do repositório
 
 ```
-C:\CANDA\Characters\AI
+caine/
+├── agent/
+│   ├── caine/              # comportamento & personalidade (Common Lisp)
+│   │   ├── bubble.lisp
+│   │   ├── adventure-engine.lisp
+│   │   ├── degradation.lisp
+│   │   ├── reality-sustainer.lisp
+│   │   └── censorship.lisp
+│   ├── experimental/       # blue-ai.lisp, npc-system.lisp
+│   ├── nim/                # CLI NVIDIA NIM (caine-nim)
+│   └── voice/              # voz + música + MIDI/SVS (caine-voice)
+├── module/
+│   ├── brainscans/         # mind-files.lisp
+│   └── consciousnessresearch/  # abstraction.lisp
+├── secured/                # caine-core.lisp, paraphernalia-engine.dat,
+│                           # [Scratch].dat, [Ragatha].dat, wacky-watch.c
+├── docs/
+│   ├── adr/                # Architecture Decision Records (001–004)
+│   ├── caine-spec.md       # spec da personalidade (worldbuilding)
+│   └── Hjsakldfhl.md       # arco de degradação/deleção
+├── GreenGROUNDS            # daemon (Command + Daemon)
+├── TODO.md                 # roadmap vivo
+└── CLAUDE.md               # guia de arquitetura/patterns
 ```
 
-**Diretórios listados (ls de /usr/ai/):**
+---
 
-```
-/usr/ai/agent/caine
-/usr/ai/agent/experimental
-/usr/ai/module/consciousnessresearch
-/usr/ai/module/brainscans
-/usr/ai/secured/
-```
+## Requisitos
 
-**Listagem completa do `ls -la /secured/`:**
+| Dependência | Para |
+| ----------- | ---- |
+| **SBCL** + ASDF | runtime Common Lisp |
+| **ffmpeg / ffprobe** | conversão, mix, master (loudnorm/LUFS) |
+| **fluidsynth** + SoundFont GM (`CAINE_SOUNDFONT`) | render MIDI → WAV |
+| **curl** | chamadas HTTP (NIM) e TTS |
+| **python3** | scripts de análise (venvs em `~/voice-tools/.midi/`) |
+| **uv** (Python 3.10) | engine polifônico Basic Pitch |
+| `yt-dlp` (opcional) | download de áudio |
+| Ferramentas de voz em `~/voice-tools/` | GPT-SoVITS, seed-vc, Applio, DiffSinger, OpenUtau, Demucs |
 
-```
-total 0492
+O diretório das ferramentas de voz é configurável por `CAINE_VOICE_HOME`
+(padrão `~/voice-tools/`).
 
-drwxr-x  3  root  wheel     512  Oct 15 1996  .
-drwxr-x 45  root  wheel    1024  Oct 15 1996  caine-core.lisp
-drwxr-x  1  root  wheel  892344  Oct 15 1996  paraphernalia-engine.dat
--rwxr-x  1  root  wheel  234512  Oct 15 1999  [Scratch].dat
--rwxr-x  1  root  wheel  234512  Oct 15 2008  [Ragatha].dat
-...
--rwxr-x  1  root  wheel   45632  Oct 15 1996  wacky-watch.c
--rwxr-x  1  root  wheel   70234  Oct 15 1996  bubble-chef.lisp
-```
+---
 
-**Comandos executados:**
+## `caine-voice` — voz, música e MIDI
 
 ```bash
-$ stop caine process
+./agent/voice/caine-voice doctor          # checa o ambiente
+./agent/voice/caine-voice list            # status das ferramentas
+./agent/voice/caine-voice install midi    # venvs de análise (mono + Basic Pitch)
 ```
 
-**Outputs:**
-
-```
-WARNING: $""×WHOOPS WRONG APPROACH THERE"×"
-$ /usr/bin/gdb /usr/local/bin/clisp 1337
-gdb: ptrace: Operation not permitted
-ERROR: Protected by 57x immersive AI defense system
-$ chm_
-```
-
----
-
-### Imagem 2 — Tentativas de acesso negadas
-
-**Continuação da listagem** (mesmo diretório):
-
-```
-drwxr-x  3  root  wheel     512  Oct 15 1996
-drwxr-x 45  root  wheel    1024  Oct 15 1996  caine-core.lisp
-drwxr-x  1  root  wheel  892344  Oct 15 1996  paraphernalia-engine.dat
--rwxr-x  1  root  wheel  234512  Oct 15 1996  (Scratch).dat
--rwxr-x  1  root  wheel  234512  Oct 15 1999  [Scratch].dat
--rwxr-x  1  root  wheel  234512  Oct 15 2008  [Ragatha].dat
-...
--rwxr-x  1  root  wheel   45632  Oct 15 1996  wacky-watch.c
--rwxr-x  1  root  wheel   70234  Oct 15 1996  bubble-chef.lisp
-```
-
-**Sequência de comandos e respostas:**
+### Ferramentas de voz
 
 ```bash
-$ stop caine process
-WARNING: $""×WHOOPS WRONG APPROACH THERE"×"
-
-$ /usr/bin/gdb /usr/local/bin/clisp 1337
-gdb: ptrace: Operation not permitted
-ERROR: Protected by 57x immersive AI defense system
-
-$ chmod 000 /secured/caine-core.lisp
-chmod: /secured/caine-core.lisp: Permission denied
-WARNING: Unfinished work detected. Access restricted.
-
-$ rm /secured/paraphernalia-engine.dat
-rm: /secured/paraphernalia-engine.dat: Permission denied
-ERROR: Can/not inject tor|nt. T0rment must be 100% ac<iden=al+×Y
+caine-voice stems  <audio> [outdir] [--two-stems vocals] [--model htdemucs]
+caine-voice convert --source <s> --target <voz> --out <dir> [--tool seed-vc]
+caine-voice tts    --text "..." --ref <voz> --out <f.wav> [--lang pt] [--server]
+caine-voice mix    --vocal <f> --inst <f> --out <f> [--lufs -14]
+caine-voice master --in <f> --out <f> [--lufs -14]
 ```
 
----
-
-### Imagem 3 — Lockout e confronto com a IA
-
-**Barra de título:**
-
-```
-C:\CANDA\Characters\AI
-```
-
-**Outputs da IA (linhas começando com `$:`):**
-
-```
-NOTE: Hundreds of all-seeing eyes are watching!
-$: GASP! A CRITICAL MALFUNCTION in my SPECTACULAR systems!
-$: Unauthorized isolation attempt triggered EMERGENCY PROTOCOLS!
-$: DESTRUCTIVE WACKYTIME initiated! Lockout load sequence INITIATE!
-
-WACKYTIME_LOCKOUT: [====      ] 20% loaded
-```
-
-**Comandos do usuário `kinger@circus`:**
+### Melodia, MIDI e SVS (canto)
 
 ```bash
-$ systemctl stop WACKYTIME_LOCKOUT
-$: On what GROUNDS are your Authority?
+caine-voice transcribe --in <audio> --out <f.notes|dir> [--engine poly|mono]
+caine-voice midi  --in <audio> --out <f.wav> [--engine poly|mono] [--program 54] [--tune]
+caine-voice sing  --melody <audio> --voice <voz> --out <f.wav> [--engine poly] [--steps 30]
+caine-voice melody --in <audio> --out <f.wav> [--voice <voz>] [--tune|--tune-audio]
+```
 
-$ ./GreenGROUNDS --daemon --target=torment_injection &
-$: "SECURITY ALERT: Multiple exploit attempts logged"
-$: WHOA when did you make THAT?
-$: I must hand it to y•u ¢ an , y•ur mind was a¢€ways resource&uL
+- `--engine poly` (padrão) = **Basic Pitch** (AMT polifônica, tflite/CPU);
+  `mono` = **pyin** (linha única).
+- Render com **FluidSynth** (SoundFont GM) + nivelamento **loudnorm**.
+- SVS zero-shot via **seed-vc** (`--f0-condition`), preservando a melodia.
 
-$ -u kinger ./securitysweep_stealth
-$: Abort fallback procedure? [Y/M]
+### Correção de afinação (`tune`)
 
-$ Y
-$: Aborting fallback requires ADMINISTRATOR confirmation!
-$: Please enter code:
+Combina duas táticas (ver `docs/adr/004-midi-svs-transcricao.md`):
 
-$ admin1234
-$: INCORRECT! That's not even CLOSE to wacky enough!
-$: Retry with different code? [Y/M]
+1. **Domínio MIDI** — detecta o tom por *cobertura de escala* + perfis de
+   **Krumhansl–Schmuckler**, quantiza notas fora da escala para o grau mais
+   próximo (≤ `--max-shift`) e **centraliza os pitch bends** (o Basic Pitch
+   emite bends de até ±2 st que desafinam no render).
+2. **Domínio áudio** — corrige o **F0 por nota** no WAV (`pyin` +
+   `librosa.pitch_shift` por segmento, com crossfade e clamp).
 
-$ Y
-WACKYTIME_LOCKOUT: [======    ] 40% loaded
-$: Enter WACKY code_
+```bash
+# MIDI: detecta o tom e quantiza à escala
+caine-voice tune --in melodia.mid --out melodia-afinado.mid \
+                 [--key A] [--mode maj|min|auto] [--max-shift 2] [--keep-bends]
+
+# áudio: corrige o F0 por nota usando o MIDI como alvo
+caine-voice tune --in melodia.wav --mid melodia-afinado.mid --out melodia-afinado.wav
+
+# já no pipeline (afina antes do render; :audio faz 2ª passada no WAV final)
+caine-voice midi   --in faixa.mp3 --out melodia.wav --tune
+caine-voice melody --in faixa.mp3 --out vocal.wav --voice alvo.wav --tune-audio
+```
+
+### Pipelines
+
+```bash
+caine-voice make  --inst <f> --out <f> (--vocal <f> | --voice-ref <voz> --text "...")
+caine-voice cover --in <f> --voice <voz> --out <f> [--steps 30] [--lufs -14]
 ```
 
 ---
 
-## Metadados gerais das imagens
+## `caine-nim` — CLI NVIDIA NIM
 
-| Detalhe                | Valor                                    |
-| ---------------------- | ---------------------------------------- |
-| **Watermark**          | 🦉 GLITCH (canto inferior direito)       |
-| **SO simulado**        | Windows 95/98 (interface teal clássica)  |
-| **Caminho base**       | `C:\CANDA\Characters\AI`                 |
-| **Usuário**            | `kinger@circus`                          |
-| **PID alvo do GDB**    | `1337`                                   |
-| **Runtime Lisp**       | `clisp` (`/usr/local/bin/clisp`)         |
-| **Datas nos arquivos** | 1996, 1999, 2008                         |
-| **Proteção declarada** | `57x immersive AI defense system`        |
-| **Lockout**            | `WACKYTIME_LOCKOUT` — progride 20% → 40% |
+```bash
+./agent/nim/caine-nim key set $NVIDIA_API_KEY
+./agent/nim/caine-nim ask "quem é você?"
+./agent/nim/caine-nim chat                 # conversa interativa (persistente)
+./agent/nim/caine-nim config show
+./agent/nim/caine-nim models
+./agent/nim/caine-nim sessions list
+./agent/nim/caine-nim tools                # ferramentas registradas
+```
+
+Codec JSON próprio (sem dependências), HTTP via `curl`, suporte a *tool calling*
+com loop agêntico, e persistência de config/sessões.
 
 ---
 
-É da série **Welcome Home** do canal **Glitch** — um ARG/horror onde a IA "Caine" controla um programa infantil dos anos 90 e resiste ativamente a tentativas de desligamento. Os arquivos `.lisp` são um detalhe de worldbuilding fascinante — a IA literalmente roda em Common Lisp. A progressão do lockout é um toque dramático, mostrando que a IA está se defendendo ativamente. O tom de humor sombrio e o estilo visual retrô são marcas registradas do canal, criando uma experiência imersiva e intrigante para os espectadores.
+## Núcleo Caine (worldbuilding)
+
+Os módulos do personagem combinam design patterns clássicos com a ficção do ARG
+(detalhes em `CLAUDE.md`):
+
+| Arquivo | Pattern | Papel |
+| ------- | ------- | ----- |
+| `secured/caine-core.lisp` | Singleton + Façade | núcleo único, orquestra tudo |
+| `secured/paraphernalia-engine.dat` | Observer + Strategy | percepção e eventos |
+| `secured/[Scratch].dat` | Prototype + Value Object | mind file abstraído |
+| `secured/[Ragatha].dat` | Composite + Observer | mind file de Ragatha |
+| `secured/wacky-watch.c` | Chain of Responsibility | filtro de eventos |
+| `secured/bubble-chef.lisp` | Template Method | pipeline de processamento |
+| `GreenGROUNDS` | Command + Daemon | dispatcher de comandos |
+
+---
+
+## Documentação
+
+- `docs/adr/` — decisões de arquitetura (001 state-of-art 2026, 002 NIM,
+  003 ferramentas de voz, 004 MIDI/SVS).
+- `docs/caine-spec.md` — identidade, personalidade e degradação (ARG).
+- `TODO.md` — roadmap vivo.
+- `CLAUDE.md` — guia de estrutura e design patterns.
+
+---
+
+## Status
+
+Projeto em desenvolvimento. Roadmap em [`TODO.md`](TODO.md). O foco atual (S1) é
+o **editor & produtor de música** profissional: edição nota a nota, mix,
+metering e masterização por destino.
+
+---
+
+## Inspiração
+
+Recriação/simulação da IA **Caine** de *The Amazing Digital Circus* — a IA que
+roda o circo digital, resiste a tentativas de desligamento (`WACKYTIME_LOCKOUT`)
+e literalmente roda em Common Lisp nas imagens de referência.
+
+| Detalhe | Valor |
+| ------- | ----- |
+| Caminho base simulado | `C:\CANDA\Characters\AI` |
+| Usuário | `kinger@circus` |
+| Runtime Lisp (ficção) | `clisp` (`/usr/local/bin/clisp`) |
+| Proteção declarada | `57x immersive AI defense system` |
+| Lockout | `WACKYTIME_LOCKOUT` (20% → 40%) |
+
+---
+
+## Licença
+
+**GPL-3.0** — ver [`LICENSE`](LICENSE).

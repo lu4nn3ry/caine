@@ -11,7 +11,7 @@
 (asdf:defsystem "caine-nim"
   :description "CLI NVIDIA NIM com tool calling, API key e persistência — IA Caine."
   :author "lu4nn3ry"
-  :license "MIT"
+  :license "GPL-3.0"
   :version "0.1.0"
   :serial t
   :depends-on ()
