@@ -106,8 +106,8 @@
   (velocity 90 :type integer))
 
 (defstruct melodia
-  (bpm 120.0 :type single-float)
-  (duracao 0.0 :type single-float)
+  (bpm 120.0 :type real)
+  (duracao 0.0 :type real)
   (programa 54 :type integer)
   (notas '() :type list))
 
@@ -310,6 +310,147 @@
   (escrever-smf (ler-melodia notes-file :programa programa) mid))
 
 ;;; ---------------------------------------------------------------------------
+;;; Leitor de Standard MIDI File (formatos 0 e 1)
+;;; ---------------------------------------------------------------------------
+;;; Usado pelo alinhamento letra→nota (ADR 005) para ler o .mid transcrito
+;;; (ADR 004) e casar sílabas com notas.
+
+(defun %read-u8 (s)
+  "Lê um byte ou NIL em EOF."
+  (read-byte s nil nil))
+
+(defun %read-u16 (s)
+  "Lê um inteiro big-endian de 16 bits."
+  (let ((a (%read-u8 s)) (b (%read-u8 s)))
+    (unless (and a b) (return-from %read-u16 nil))
+    (logior (ash a 8) b)))
+
+(defun %read-u32 (s)
+  "Lê um inteiro big-endian de 32 bits."
+  (let ((a (%read-u8 s)) (b (%read-u8 s)) (c (%read-u8 s)) (d (%read-u8 s)))
+    (unless (and a b c d) (return-from %read-u32 nil))
+    (logior (ash a 24) (ash b 16) (ash c 8) d)))
+
+(defun %read-ascii (s n)
+  "Lê N bytes como string ASCII."
+  (let ((buf (make-array n :element-type 'character)))
+    (dotimes (i n buf)
+      (setf (char buf i) (code-char (or (%read-u8 s) 0))))))
+
+(defun %ler-varlen (s)
+  "Lê uma quantity variable-length (SMF: delta / meta length)."
+  (let ((value 0))
+    (loop
+      (let ((b (%read-u8 s)))
+        (unless b (return value))
+        (setf value (logior (logand b #x7f)
+                            (ash value 7)))
+        (when (zerop (logand b #x80)) (return value))))))
+
+(defun ler-smf (path)
+  "Lê PATH (.mid) e devolve uma MELODIA (notas em segundos).
+   Suporta SMF formato 0 e 1, running status e mudanças de tempo (meta 0x51)."
+  (with-open-file (s path :direction :input :element-type '(unsigned-byte 8)
+                          :if-does-not-exist :error)
+    (unless (string= (%read-ascii s 4) "MThd")
+      (error "não é um arquivo MIDI válido: ~a" path))
+    (%read-u32 s)                         ; len do header (6)
+    (let ((formato (%read-u16 s))
+          (ntrks (%read-u16 s))
+          (div (%read-u16 s)))
+      (declare (ignore formato))
+      (unless div (error "header SMF truncado: ~a" path))
+      (when (>= div #x8000) (error "time division SMPTE não suportado: ~a" path))
+      (let ((ppq div)
+            (tempos '())                  ; (tick . microsseg/beat)
+            (raw '()))                    ; (list tick tipo pitch)
+        (dotimes (_ ntrks)
+          (declare (ignore _))
+          (unless (string= (%read-ascii s 4) "MTrk")
+            (error "chunk inesperado lendo ~a" path))
+          (let* ((mlen (%read-u32 s))
+                 (fim (and mlen (+ (file-position s) mlen)))
+                 (tick 0) (status 0))
+            (loop while (and fim (< (file-position s) fim))
+                  do (incf tick (%ler-varlen s))
+                     (let ((b1 (%read-u8 s)))
+                       (unless b1 (return))
+                       (cond
+                         ;; meta evento
+                         ((= b1 #xFF)
+                          (let ((mtype (%read-u8 s))
+                                (mlen2 (%ler-varlen s)))
+                            (cond
+                              ((= mtype #x51)  ; set tempo (3 bytes)
+                               (let ((us (logior (ash (%read-u8 s) 16)
+                                                 (ash (%read-u8 s) 8)
+                                                 (%read-u8 s))))
+                                 (push (cons tick us) tempos))
+                               (dotimes (_j (- mlen2 3)) (declare (ignore _j)) (%read-u8 s)))
+                              (t (dotimes (_j mlen2) (declare (ignore _j)) (%read-u8 s))))))
+                         ;; sysex
+                         ((or (= b1 #xF0) (= b1 #xF7))
+                          (let ((mlen2 (%ler-varlen s)))
+                            (dotimes (_j mlen2) (declare (ignore _j)) (%read-u8 s))))
+                         ;; evento de canal com status
+                         ((>= b1 #x80)
+                          (setf status b1)
+                          (let ((type (logand b1 #xF0)))
+                            (case type
+                              ((#x80 #x90)
+                               (let ((p (%read-u8 s)) (v (%read-u8 s)))
+                                 (cond
+                                   ((and (= type #x90) v (plusp v))
+                                    (push (list tick :on p) raw))
+                                   (t (push (list tick :off p) raw)))))
+                              (#xE0 (%read-u8 s) (%read-u8 s))
+                              ((#xC0 #xD0) (%read-u8 s))
+                              (t (%read-u8 s) (%read-u8 s)))))
+                         ;; data byte: running status
+                         ((plusp status)
+                          (let ((type (logand status #xF0)))
+                            (case type
+                              ((#x80 #x90)
+                               (let ((p b1) (v (%read-u8 s)))
+                                 (cond
+                                   ((and (= type #x90) v (plusp v))
+                                    (push (list tick :on p) raw))
+                                   (t (push (list tick :off p) raw)))))
+                              (#xE0 (%read-u8 s))
+                              ((#xC0 #xD0) nil)
+                              (t (%read-u8 s))))))))))
+        ;; conversão tick → segundos (tempo por quarto em µs)
+        (let* ((tempos (sort tempos #'< :key #'car))
+               (spq-por-tick
+                 (lambda (tick)
+                   "Segundos do TICK dado os eventos de tempo (µs/beat por PPQ)."
+                   (let ((sec 0.0) (cur .5) (prev 0))
+                     (dolist (seg tempos)
+                       (let ((seg-tick (car seg)))
+                         (when (> seg-tick tick) (return))
+                         (incf sec (* (- seg-tick prev) cur (/ 1.0 ppq)))
+                         (setf cur (/ (cdr seg) 1e6) prev seg-tick)))
+                     (+ sec (* (- tick prev) cur (/ 1.0 ppq))))))
+               (ons (make-hash-table))
+               (notas '()))
+          (dolist (ev (sort raw #'< :key #'car))
+            (let ((tick (first ev)) (tipo (second ev)) (p (third ev)))
+              (if (eq tipo :on)
+                  (setf (gethash p ons) tick)
+                  (let ((on-tick (gethash p ons)))
+                    (when on-tick
+                      (push (make-nota :onset (funcall spq-por-tick on-tick)
+                                       :offset (funcall spq-por-tick tick)
+                                       :pitch p)
+                            notas)
+                      (remhash p ons))))))
+          (let* ((notas (sort notas #'< :key #'nota-onset))
+                 (bpm (if tempos (/ 60000000.0 (cdar tempos)) 120.0))
+                 (duracao (if notas (nota-offset (car (last notas))) 0.0)))
+            (make-melodia :bpm (float bpm) :duracao (float duracao)
+                          :notas notas)))))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Render MIDI → WAV (FluidSynth)
 ;;; ---------------------------------------------------------------------------
 
@@ -373,3 +514,37 @@
                  :capture nil)
       (declare (ignore o e))
       (values outdir code))))
+
+;;; ---------------------------------------------------------------------------
+;;; Mock de melodia / MIDI (para testes e alinhamento offline sem Python)
+;;; ---------------------------------------------------------------------------
+
+(defun gerar-melodia-mock (&key (bpm 120) (num-notas 16))
+  "Gera uma estrutura MELODIA em Lisp puro para testes e alinhamento."
+  (let* ((pitches '(60 62 64 65 67 69 71 72))
+         (n-pitches (length pitches))
+         (dur-passo 0.5)
+         (notas '())
+         (tempo-atual 0.0))
+    (dotimes (i num-notas)
+      (let* ((p (nth (mod i n-pitches) pitches))
+             (onset tempo-atual)
+             (offset (+ tempo-atual (* dur-passo 0.9))))
+        (push (make-nota
+               :onset (float onset 1.0)
+               :offset (float offset 1.0)
+               :pitch p
+               :velocity 85)
+              notas)
+        (incf tempo-atual dur-passo)))
+    (make-melodia
+     :bpm bpm
+     :duracao (float tempo-atual 1.0)
+     :programa 54
+     :notas (nreverse notas))))
+
+(defun escrever-midi-mock (caminho &key (bpm 120) (num-notas 16))
+  "Salva um arquivo MIDI mock em CAMINHO."
+  (ensure-directories-exist caminho)
+  (escrever-smf (gerar-melodia-mock :bpm bpm :num-notas num-notas) caminho)
+  caminho)

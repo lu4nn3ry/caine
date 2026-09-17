@@ -39,6 +39,26 @@ Afinação (pitch correction):
                             MIDI: detecta tom (K-S + cobertura) e quantiza à escala
                             áudio: corrige F0 por nota no WAV (pyin + pitch-shift)
 
+Letras / SVS (ADR 005):
+  caine-voice lyrics write --theme <tema> --out <f.lyrics> [--style pop|rock|rap|balada|eletrônica|mpb|forró] [--tempo 120] [--lang pt]
+                            gera letra por template (rascunho; produção via NIM)
+  caine-voice lyrics edit --in <f.lyrics> --out <f.lyrics> --edit \"mais curta|mais direta|refrão duas vezes\"
+                            micro-transformações locais (sem NIM)
+  caine-voice lyrics analyze --in <f.lyrics> [--bpm 128]
+                            relatório do linter (sílabas, rima, metro, densidade)
+  caine-voice lyrics align --in <f.lyrics> --mid <f.mid> --out <f.txt> [--format diffsinger|openutau]
+                            alinha sílabas às notas do MIDI (entrada do DiffSinger/OpenUtau)
+  caine-voice lyrics phonemize --in <f.lyrics>
+                            fonemas X-SAMPA pt-BR (hint; produção usa dsdict-pt)
+
+Artistas (ADR 006):
+  caine-voice artists list
+                            lista perfis de artista (Caine, Bubble, Ragatha, Scratch)
+  caine-voice artists write --artist <id> --theme <tema> --out <f.lyrics> [--style <estilo>]
+                            gera letra personalizada com persona do artista
+  caine-voice midi mock [--out <f.mid>] [--bpm 120]
+                            gera arquivo MIDI mock para teste/alinhamento offline
+
 Pipelines:
   caine-voice make  --inst <f> --out <f> (--vocal <f> | --voice-ref <voz> --text \"...\")
   caine-voice cover --in <f> --voice <voz> --out <f> [--steps 30] [--lufs -14]
@@ -251,6 +271,19 @@ Env: CAINE_VOICE_HOME (padrão ~/voice-tools/) · CAINE_SOUNDFONT")
       (error (e) (println "erro: ~a" e) 1))))
 
 (defun cmd-midi (args)
+  (let ((sub (first args)))
+    (when (and sub (string= sub "mock"))
+      (let* ((rest (rest args))
+             (out (flag-value rest "--out" "mock/melodia-exemplo.mid"))
+             (bpm (parse-integer (flag-value rest "--bpm" "120") :junk-allowed t)))
+        (handler-case
+            (progn
+              (escrever-midi-mock out :bpm (or bpm 120))
+              (println "MIDI mock gerado em ~a (~a bpm)" out (or bpm 120))
+              (return-from cmd-midi 0))
+          (error (e)
+            (println "erro ao gerar MIDI mock: ~a" e)
+            (return-from cmd-midi 1))))))
   (let ((in (flag-value args "--in"))
         (out (flag-value args "--out"))
         (engine (flag-value args "--engine" "poly"))
@@ -260,6 +293,7 @@ Env: CAINE_VOICE_HOME (padrão ~/voice-tools/) · CAINE_SOUNDFONT")
         (work (flag-value args "--work")))
     (unless (and in out)
       (println "Uso: caine-voice midi --in <audio> --out <f.wav> [--engine poly|mono]")
+      (println "     caine-voice midi mock [--out <f.mid>] [--bpm 120]")
       (return-from cmd-midi 1))
     (handler-case
         (let* ((dir (uiop:ensure-directory-pathname
@@ -372,6 +406,134 @@ Env: CAINE_VOICE_HOME (padrão ~/voice-tools/) · CAINE_SOUNDFONT")
       (error (e) (println "erro: ~a" e) 1))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Comandos de letras / SVS (ADR 005)
+;;; ---------------------------------------------------------------------------
+
+(defun cmd-lyrics (args)
+  (let ((sub (first args))
+        (rest (rest args)))
+    (cond
+      ((or (null sub) (string= sub "--help") (string= sub "-h"))
+       (println "Uso: caine-voice lyrics <write|edit|analyze|align|phonemize> [args]")
+       1)
+      ((string= sub "write")
+       (let ((theme (flag-value rest "--theme"))
+             (out (flag-value rest "--out"))
+             (style (flag-value rest "--style" "default"))
+             (lang (flag-value rest "--lang" "pt"))
+             (tempo (flag-value rest "--tempo" "120")))
+         (unless (and theme out)
+           (println "Uso: caine-voice lyrics write --theme <tema> --out <f.lyrics>")
+           (return-from cmd-lyrics 1))
+         (handler-case
+             (progn
+               (println "== gerando letra (estilo ~a)" style)
+               (escrever-cancao
+                (gerar-letra theme :style style :lang lang
+                                  :tempo (or (parse-integer tempo :junk-allowed t) 120))
+                out)
+               (println "letra gerada em ~a (analise com: lyrics analyze --in ~a)" out out)
+               0)
+           (error (e) (println "erro: ~a" e) 1))))
+      ((string= sub "edit")
+       (let ((in (flag-value rest "--in"))
+             (out (flag-value rest "--out"))
+             (instr (flag-value rest "--edit")))
+         (unless (and in out instr)
+           (println "Uso: caine-voice lyrics edit --in <f.lyrics> --out <f.lyrics> --edit \"mais curta\"")
+           (return-from cmd-lyrics 1))
+         (handler-case
+             (progn
+               (println "== editando (--edit \"~a\")" instr)
+               (escrever-cancao (editar-letra-local (ler-cancao in) instr) out)
+               (println "letra editada em ~a" out)
+               0)
+           (error (e) (println "erro: ~a" e) 1))))
+      ((string= sub "analyze")
+       (let ((in (flag-value rest "--in"))
+             (bpm (flag-value rest "--bpm")))
+         (unless in
+           (println "Uso: caine-voice lyrics analyze --in <f.lyrics> [--bpm 128]")
+           (return-from cmd-lyrics 1))
+         (handler-case
+             (progn
+               (println "~a"
+                        (analisar-letra (ler-cancao in)
+                                        :bpm (and bpm (parse-integer bpm :junk-allowed t))))
+               0)
+           (error (e) (println "erro: ~a" e) 1))))
+      ((string= sub "align")
+       (let ((in (flag-value rest "--in"))
+             (mid (flag-value rest "--mid"))
+             (out (flag-value rest "--out"))
+             (fmt (flag-value rest "--format" "diffsinger")))
+         (unless (and in mid out)
+           (println "Uso: caine-voice lyrics align --in <f.lyrics> --mid <f.mid> --out <f.txt> [--format diffsinger|openutau]")
+           (return-from cmd-lyrics 1))
+         (handler-case
+             (let ((cancao (ler-cancao in))
+                   (mel (ler-smf mid)))
+               (multiple-value-bind (al avisos) (alinhar-letra cancao mel :rest-threshold 0.15)
+                 (dolist (a avisos) (println "  ~a" a))
+                 (if (string= fmt "openutau")
+                     (escrever-align-openutau al out)
+                     (escrever-align-diffsinger al out))
+                 (println "alinhamento (~a, ~d sílabas) em ~a"
+                          fmt (length (alinhamento-syllables al)) out)
+                 0))
+           (error (e) (println "erro: ~a" e) 1))))
+      ((string= sub "phonemize")
+       (let ((in (flag-value rest "--in")))
+         (unless in
+           (println "Uso: caine-voice lyrics phonemize --in <f.lyrics>")
+           (return-from cmd-lyrics 1))
+         (handler-case
+             (progn
+               (println "~a" (fonemizar-letra (ler-cancao in)))
+               0)
+           (error (e) (println "erro: ~a" e) 1))))
+      (t (println "Comando desconhecido: ~a" sub)
+         (println "Uso: caine-voice lyrics <write|edit|analyze|align|phonemize> [args]")
+         1))))
+
+(defun cmd-artists (args)
+  (let ((sub (first args))
+        (rest (rest args)))
+    (cond
+      ((or (null sub) (string= sub "list"))
+       (println "Perfis de artista disponíveis (ADR 006):")
+       (dolist (a (listar-artistas))
+         (println "  • ~a (~a) [registro: ~a, estilo: ~a, voz: ~a]"
+                  (perfil-artista-nome a)
+                  (perfil-artista-id a)
+                  (perfil-artista-registro a)
+                  (perfil-artista-estilo a)
+                  (perfil-artista-voz a))
+         (println "    ~a" (perfil-artista-descricao a)))
+       0)
+      ((string= sub "write")
+       (let ((artist (flag-value rest "--artist"))
+             (theme (flag-value rest "--theme"))
+             (out (flag-value rest "--out"))
+             (style (flag-value rest "--style"))
+             (tempo (flag-value rest "--tempo" "120")))
+         (unless (and artist theme out)
+           (println "Uso: caine-voice artists write --artist <id> --theme <tema> --out <f.lyrics> [--style <estilo>] [--tempo <bpm>]")
+           (return-from cmd-artists 1))
+         (handler-case
+             (let ((cancao (gerar-letra-artista artist theme
+                                                :estilo style
+                                                :tempo (parse-integer tempo :junk-allowed t))))
+               (escrever-cancao cancao out)
+               (println "letra para ~a salva em ~a (~d seções, tempo ~a bpm)"
+                        artist out (length (cancao-secoes cancao)) (cancao-tempo cancao))
+               0)
+           (error (e) (println "erro: ~a" e) 1))))
+      (t (println "Comando desconhecido: ~a" sub)
+         (println "Uso: caine-voice artists <list|write> [args]")
+         1))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Dispatch
 ;;; ---------------------------------------------------------------------------
 
@@ -399,6 +561,8 @@ Env: CAINE_VOICE_HOME (padrão ~/voice-tools/) · CAINE_SOUNDFONT")
             ((string= cmd "sing") (cmd-sing rest))
             ((string= cmd "melody") (cmd-melody rest))
             ((string= cmd "tune") (cmd-tune rest))
+            ((string= cmd "lyrics") (cmd-lyrics rest))
+            ((string= cmd "artists") (cmd-artists rest))
             ((string= cmd "make") (cmd-make rest))
             ((string= cmd "cover") (cmd-cover rest))
             (t (println "Comando desconhecido: ~a" cmd)

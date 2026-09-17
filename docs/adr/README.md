@@ -8,6 +8,8 @@ Registro de decisões de arquitetura (Architecture Decision Records).
 | 002  | CLI NVIDIA NIM com tool calling     | Aceito | 2026-09-17 |
 | 003  | Integração das ferramentas de voz   | Aceito | 2026-09-17 |
 | 004  | Transcrição MIDI e SVS (canto)      | Aceito | 2026-09-17 |
+| 005  | Geração de letras (caine-lyrics)    | Aceito | 2026-09-17 |
+| 006  | Personalidades como artistas (caine-artists) | Aceito | 2026-09-17 |
 
 ## Formato
 

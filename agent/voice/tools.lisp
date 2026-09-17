@@ -167,9 +167,7 @@
                    do (sleep 0.5)))
            (let* ((url (format nil "http://127.0.0.1:~a/tts" port))
                   (payload (format nil
-                                   "{\"text\":~s,\"text_lang\":~s,\"ref_audio_path\":~s,~
-                                     \"prompt_text\":~s,\"prompt_lang\":~s,~
-                                     \"text_split_method\":\"cut5\",\"media_type\":\"wav\"}"
+                                   "{\"text\":~s,\"text_lang\":~s,\"ref_audio_path\":~s,\"prompt_text\":~s,\"prompt_lang\":~s,\"text_split_method\":\"cut5\",\"media_type\":\"wav\"}"
                                    text text-lang (namestring ref-audio)
                                    prompt-text prompt-lang)))
              (multiple-value-bind (o code e) (http-post-file url payload out)

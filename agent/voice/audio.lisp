@@ -71,10 +71,7 @@
   (ensure-out-dir out)
   (let ((filter
          (format nil
-                 "[0:a]volume=~adB,aresample=48000[v];~
-                  [1:a]volume=~adB,aresample=48000[i];~
-                  [v][i]amix=inputs=2:duration=~a:dropout_transition=0:normalize=0[mix];~
-                  [mix]loudnorm=I=~a:TP=-1.5:LRA=11[out]"
+                 "[0:a]volume=~adB,aresample=48000[v];[1:a]volume=~adB,aresample=48000[i];[v][i]amix=inputs=2:duration=~a:dropout_transition=0:normalize=0[mix];[mix]loudnorm=I=~a:TP=-1.5:LRA=11[out]"
                  vocal-db inst-db duration lufs)))
     (multiple-value-bind (o e code)
         (run-cmd (append (list (ffmpeg-bin) "-y"

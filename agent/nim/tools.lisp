@@ -122,6 +122,75 @@
                         (format nil "exit_code: ~a~%stdout:~%~a~%stderr:~%~a"
                                 code (or out "") (or err ""))))))))
 
+  (registrar-tool "write_lyrics"
+    :descricao "Gera uma letra estruturada (.lyrics) para uma música. Suporta personas de artista (caine, bubble, ragatha, scratch) e estilos variados."
+    :parametros (params-schema
+                 (make-json-object
+                  "theme" (string-prop "Tema ou assunto central da música")
+                  "artist" (string-prop "Artista/persona opcional: 'caine', 'bubble', 'ragatha', 'scratch'")
+                  "style" (string-prop "Estilo musical opcional: pop, rock, rap, balada, eletronica, mpb, forro")
+                  "out_path" (string-prop "Caminho opcional para salvar o arquivo .lyrics"))
+                 '("theme"))
+    :handler (lambda (args)
+               (let* ((theme (json-get args "theme"))
+                      (artist (json-get args "artist"))
+                      (style (or (json-get args "style") "pop"))
+                      (out (or (json-get args "out_path")
+                               (format nil "out/lyrics/~a-~a.lyrics"
+                                       (or artist "default")
+                                       (get-universal-time))))
+                      (bin (caine-voice-bin)))
+                 (cond
+                   ((null theme) "Erro: 'theme' ausente.")
+                   ((or (null bin) (not (probe-file bin)))
+                    "Erro: caine-voice não encontrado (defina CAINE_VOICE_BIN).")
+                   (t
+                    (let ((cmd (if (and artist (plusp (length artist)))
+                                   (format nil "artists write --artist ~s --theme ~s --out ~s"
+                                           artist theme out)
+                                   (format nil "lyrics write --theme ~s --style ~s --out ~s"
+                                           theme style out))))
+                      (multiple-value-bind (out-str err-str code)
+                          (uiop:run-program
+                           (list "/bin/sh" "-c"
+                                 (format nil "exec ~s ~a" bin cmd))
+                           :output :string :error-output :string
+                           :ignore-error-status t)
+                        (if (zerop code)
+                            (format nil "Letra gerada com sucesso em ~a~%~a" out (or out-str ""))
+                            (format nil "Erro ao gerar letra (code ~a):~%~a" code (or err-str out-str ""))))))))))
+
+  (registrar-tool "edit_lyrics"
+    :descricao "Edita uma letra de música existente (.lyrics) aplicando instruções ou refinamento."
+    :parametros (params-schema
+                 (make-json-object
+                  "in_path" (string-prop "Caminho do arquivo .lyrics de entrada")
+                  "instruction" (string-prop "Instrução de edição (ex: 'mais curta', 'mais direta', 'refrão duas vezes')")
+                  "out_path" (string-prop "Caminho opcional de saída (sobrescreve in_path se omitido)"))
+                 '("in_path" "instruction"))
+    :handler (lambda (args)
+               (let* ((in-path (json-get args "in_path"))
+                      (instruction (json-get args "instruction"))
+                      (out-path (or (json-get args "out_path") in-path))
+                      (bin (caine-voice-bin)))
+                 (cond
+                   ((null in-path) "Erro: 'in_path' ausente.")
+                   ((null instruction) "Erro: 'instruction' ausente.")
+                   ((or (null bin) (not (probe-file bin)))
+                    "Erro: caine-voice não encontrado (defina CAINE_VOICE_BIN).")
+                   (t
+                    (let ((cmd (format nil "lyrics edit --in ~s --out ~s --edit ~s"
+                                       in-path out-path instruction)))
+                      (multiple-value-bind (out-str err-str code)
+                          (uiop:run-program
+                           (list "/bin/sh" "-c"
+                                 (format nil "exec ~s ~a" bin cmd))
+                           :output :string :error-output :string
+                           :ignore-error-status t)
+                        (if (zerop code)
+                            (format nil "Letra editada salva em ~a" out-path)
+                            (format nil "Erro ao editar letra (code ~a):~%~a" code (or err-str out-str ""))))))))))
+
   (registrar-tool "read_file"
     :descricao "Lê e retorna o conteúdo de um arquivo de texto."
     :parametros (params-schema
