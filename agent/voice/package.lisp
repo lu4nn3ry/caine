@@ -123,4 +123,9 @@
    #:listar-artistas
    #:obter-artista
    #:artista-prompt-letra
-   #:gerar-letra-artista))
+   #:gerar-letra-artista
+   #:artista-outdir
+   #:artista-voz-ref
+   #:alinhar-versao-artista
+   #:produzir-versao-artista
+   #:produzir-album-artistas))

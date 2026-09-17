@@ -108,3 +108,147 @@
       (setf (cancao-titulo cancao)
             (format nil "~a (~a)" tema (perfil-artista-nome art))))
     cancao))
+
+;;; ---------------------------------------------------------------------------
+;;; Estúdio do artista: diretórios e referência de voz (ADR 006 §3-4)
+;;; ---------------------------------------------------------------------------
+
+(defun artista-outdir (artista &key (base "out/rg"))
+  "Diretório de estúdio de um ARTISTA: OUT/RG/<id>/."
+  (let ((art (if (perfil-artista-p artista) artista (obter-artista artista))))
+    (unless art (error "artista não encontrado: ~a" artista))
+    (uiop:ensure-directory-pathname
+     (merge-pathnames (format nil "~a/" (perfil-artista-id art))
+                      (uiop:ensure-directory-pathname base)))))
+
+(defun artista-voz-ref (artista &key (base "out/rg"))
+  "Referência de voz (timbre) do ARTISTA: primeiro arquivo encontrado em
+   OUT/RG/<id>/voz.wav, voz.mp3 ou referencia.wav. NIL se não existir."
+  (let ((dir (artista-outdir artista :base base)))
+    (or (probe-file (merge-pathnames "voz.wav" dir))
+        (probe-file (merge-pathnames "voz.mp3" dir))
+        (probe-file (merge-pathnames "referencia.wav" dir)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Alinhamento por artista (ADR 005 §4 → entradas DiffSinger/OpenUtau)
+;;; ---------------------------------------------------------------------------
+
+(defun alinhar-versao-artista (artista mid letra
+                                &key (outdir nil) (rest-threshold 0.15))
+  "Alinha a LETRA (.lyrics) de um ARTISTA ao MIDI e escreve as entradas
+   DiffSinger (.ds) e OpenUtau (.uta) em OUTDIR (padrão: estúdio do artista).
+   Retorna (values alinhamento avisos caminho-ds caminho-uta)."
+  (let* ((art (if (perfil-artista-p artista) artista (obter-artista artista)))
+         (dir (or outdir (artista-outdir art)))
+         (id (perfil-artista-id art)))
+    (unless art (error "artista não encontrado: ~a" artista))
+    (ensure-directories-exist dir)
+    (let* ((cancao (ler-cancao letra))
+           (mel (ler-smf mid))
+           (ds (merge-pathnames (format nil "~a.ds" id) dir))
+           (uta (merge-pathnames (format nil "~a.uta" id) dir)))
+      (multiple-value-bind (al avisos)
+          (alinhar-letra cancao mel :rest-threshold rest-threshold)
+        (escrever-align-diffsinger al ds)
+        (escrever-align-openutau al uta)
+        (values al avisos ds uta)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Produtor: uma versão por artista (ADR 006 §4)
+;;; ---------------------------------------------------------------------------
+
+(defun produzir-versao-artista (artista melodia out
+                                &key mid letra (tema "a magia do circo digital")
+                                  (engine :instrumental) (steps 30) (semi 0)
+                                  (programa 54) (lufs -14.0) (tempo 120)
+                                  (workdir nil))
+  "Gera uma versão de MELODIA com a persona do ARTISTA em OUT.
+   - MID: com path explícito usa como está; senão transcreve (mono/pyin).
+   - LETRA: com path usa como está; senão gera pela persona do artista.
+   - ENGINE: :instrumental (FluidSynth) | :seedvc (voz do perfil) |
+     :diffsinger/:openutau (gera entradas de alinhamento; render no tool externo).
+   Retorna OUT."
+  (let* ((art (if (perfil-artista-p artista) artista (obter-artista artista))))
+    (unless art (error "artista não encontrado: ~a" artista))
+    (let* ((id (perfil-artista-id art))
+           (work (or workdir
+                     (merge-pathnames "producao/"
+                                      (uiop:pathname-directory-pathname out)))))
+      (ensure-directories-exist work)
+      (let* ((mid-path
+               (or mid
+                   (let* ((base (string-downcase (or (pathname-name melodia) "melodia")))
+                          (notes (merge-pathnames (format nil "~a.notes" base) work))
+                          (m (merge-pathnames (format nil "~a.mid" base) work)))
+                     (unless (midi-pronto-p)
+                       (error "transcrição mono não instalada. Rode: caine-voice install midi (ou passe --mid)"))
+                     (println "== 1/4 transcrevendo melodia (mono/pyin) de ~a" (namestring melodia))
+                     (transcrever melodia notes)
+                     (setf m (notas->midi notes m :programa programa))
+                     m)))
+             (letra-path
+               (or letra
+                   (let ((lyr (merge-pathnames (format nil "~a.lyrics" id) work)))
+                     (println "== 2/4 letra com persona ~a (tema: ~a)"
+                              (perfil-artista-nome art) tema)
+                     (escrever-cancao (gerar-letra-artista art tema :tempo tempo) lyr)
+                     lyr))))
+        (multiple-value-bind (_al avisos _ds _uta)
+            (alinhar-versao-artista art mid-path letra-path :outdir work)
+          (declare (ignore _al _ds _uta))
+          (dolist (a avisos) (println "   ~a" a))
+          (ecase engine
+            (:diffsinger
+             (println "== 3/3 alinhamento pronto (DiffSinger: ~a)" (namestring (merge-pathnames (format nil "~a.ds" id) work)))
+             (println "   render: use o DiffSinger com a voz de ~a" (perfil-artista-nome art))
+             out)
+            (:openutau
+             (println "== 3/3 alinhamento pronto (OpenUtau: ~a)" (namestring (merge-pathnames (format nil "~a.uta" id) work)))
+             (println "   render: use o OpenUtau com a voz de ~a" (perfil-artista-nome art))
+             out)
+            (:seedvc
+             (let ((voz (artista-voz-ref art)))
+               (unless voz
+                 (error "sem referência de voz para ~a. Coloque out/rg/~a/voz.wav" id id))
+               (println "== 3/4 renderizando instrumental (FluidSynth)")
+               (let ((inst (merge-pathnames (format nil "~a-instr.wav" id) work)))
+                 (render-midi mid-path inst :gain 0.8 :lufs lufs)
+                 (println "== 4/4 cantando no timbre de ~a" (perfil-artista-nome art))
+                 (let ((conv (merge-pathnames "cantado/" work)))
+                   (multiple-value-bind (dir code)
+                       (cantar-seedvc inst voz conv :steps steps :semi semi)
+                     (unless (zerop code) (error "seed-vc falhou (exit ~a)" code))
+                     (let ((vocal (newest-wav dir)))
+                       (unless vocal (error "saída seed-vc não encontrada"))
+                       (master-audio vocal out :lufs lufs)))))))
+            (:instrumental
+             (println "== 3/3 renderizando + masterizando → ~a" (namestring out))
+             (render-midi mid-path out :gain 0.8 :lufs lufs))))
+        out))))
+
+(defun produzir-album-artistas (melodia
+                                &key (base "out/rg") (engine :instrumental)
+                                  mid (letras nil) (tema "a magia do circo digital")
+                                  (steps 30) (semi 0) (tempo 120))
+  "Gera a versão de MELODIA para todos os artistas (ADR 006 §album).
+   MID: arquivo MIDI compartilhado (opcional; se omitido, transcreve MELODIA).
+   LETRAS: hash id→path de .lyrics (opcional; sem ele, gera pela persona).
+   Retorna a lista de saídas geradas."
+  (let ((saidas '()))
+    (dolist (art (listar-artistas))
+      (let* ((id (perfil-artista-id art))
+             (out (merge-pathnames "melodia-afinada-v1.wav"
+                                   (artista-outdir art :base base)))
+             (letra (and letras (gethash id letras))))
+        (handler-case
+            (progn
+              (println "== artista ~a (~a)" (perfil-artista-nome art) id)
+              (push (produzir-versao-artista art melodia out
+                                             :mid mid
+                                             :letra letra :tema tema
+                                             :engine engine :steps steps
+                                             :semi semi :tempo tempo)
+                    saidas))
+          (error (e)
+            (println "   erro: ~a" e)))))
+    (nreverse saidas)))

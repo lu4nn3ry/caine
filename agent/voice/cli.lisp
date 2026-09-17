@@ -56,6 +56,12 @@ Artistas (ADR 006):
                             lista perfis de artista (Caine, Bubble, Ragatha, Scratch)
   caine-voice artists write --artist <id> --theme <tema> --out <f.lyrics> [--style <estilo>]
                             gera letra personalizada com persona do artista
+  caine-voice artists prompt --artist <id> [--theme <tema>]
+                            imprime o prompt com persona para uso em LLM/NIM
+  caine-voice artists sing  --artist <id> --melody <audio> --out <wav> [--engine ...]
+                            produz versão da melodia interpretada pelo artista
+  caine-voice artists album --melody <audio> [--out <dir>] [--engine ...]
+                            produz álbum com versões de todos os 4 artistas
   caine-voice midi mock [--out <f.mid>] [--bpm 120]
                             gera arquivo MIDI mock para teste/alinhamento offline
 
@@ -529,8 +535,78 @@ Env: CAINE_VOICE_HOME (padrão ~/voice-tools/) · CAINE_SOUNDFONT")
                         artist out (length (cancao-secoes cancao)) (cancao-tempo cancao))
                0)
            (error (e) (println "erro: ~a" e) 1))))
+      ((string= sub "prompt")
+       (let ((artist (flag-value rest "--artist"))
+             (theme (flag-value rest "--theme" "a magia do circo digital"))
+             (style (flag-value rest "--style")))
+         (unless artist
+           (println "Uso: caine-voice artists prompt --artist <id> [--theme <tema>] [--style <estilo>]")
+           (return-from cmd-artists 1))
+         (handler-case
+             (progn
+               (println "~a" (artista-prompt-letra artist :tema theme :estilo style))
+               0)
+           (error (e) (println "erro: ~a" e) 1))))
+      ((string= sub "sing")
+       (let ((artist (flag-value rest "--artist"))
+             (melody (flag-value rest "--melody"))
+             (out (flag-value rest "--out"))
+             (mid (flag-value rest "--mid"))
+             (letra (flag-value rest "--letra"))
+             (tema (flag-value rest "--tema" "a magia do circo digital"))
+             (engine-str (flag-value rest "--engine" "instrumental"))
+             (steps (flag-value rest "--steps" "30"))
+             (semi (flag-value rest "--semi" "0"))
+             (tempo (flag-value rest "--tempo" "120")))
+         (unless (and artist melody out)
+           (println "Uso: caine-voice artists sing --artist <id> --melody <audio> --out <wav> [--mid <f.mid>] [--letra <f.lyrics>] [--tema <texto>] [--engine instrumental|seedvc|diffsinger|openutau] [--steps 30] [--semi 0] [--tempo 120]")
+           (return-from cmd-artists 1))
+         (handler-case
+             (let* ((eng (cond ((string-equal engine-str "seedvc") :seedvc)
+                               ((string-equal engine-str "diffsinger") :diffsinger)
+                               ((string-equal engine-str "openutau") :openutau)
+                               (t :instrumental))))
+               (produzir-versao-artista artist melody out
+                                        :mid mid
+                                        :letra letra
+                                        :tema tema
+                                        :engine eng
+                                        :steps (parse-integer steps :junk-allowed t)
+                                        :semi (parse-integer semi :junk-allowed t)
+                                        :tempo (parse-integer tempo :junk-allowed t))
+               (println "versão de ~a gerada em ~a" artist out)
+               0)
+           (error (e) (println "erro: ~a" e) 1))))
+      ((string= sub "album")
+       (let ((melody (flag-value rest "--melody"))
+             (base (flag-value rest "--out" "out/rg"))
+             (mid (flag-value rest "--mid"))
+             (engine-str (flag-value rest "--engine" "instrumental"))
+             (tema (flag-value rest "--tema" "a magia do circo digital"))
+             (steps (flag-value rest "--steps" "30"))
+             (semi (flag-value rest "--semi" "0"))
+             (tempo (flag-value rest "--tempo" "120")))
+         (unless melody
+           (println "Uso: caine-voice artists album --melody <audio> [--out <dir>] [--mid <f.mid>] [--engine instrumental|seedvc|diffsinger|openutau] [--tema <texto>] [--steps 30] [--semi 0] [--tempo 120]")
+           (return-from cmd-artists 1))
+         (handler-case
+             (let* ((eng (cond ((string-equal engine-str "seedvc") :seedvc)
+                               ((string-equal engine-str "diffsinger") :diffsinger)
+                               ((string-equal engine-str "openutau") :openutau)
+                               (t :instrumental)))
+                    (saidas (produzir-album-artistas melody
+                                                     :base base
+                                                     :mid mid
+                                                     :engine eng
+                                                     :tema tema
+                                                     :steps (parse-integer steps :junk-allowed t)
+                                                     :semi (parse-integer semi :junk-allowed t)
+                                                     :tempo (parse-integer tempo :junk-allowed t))))
+               (println "álbum produzido: ~d versão(ões) em ~a" (length saidas) base)
+               0)
+           (error (e) (println "erro: ~a" e) 1))))
       (t (println "Comando desconhecido: ~a" sub)
-         (println "Uso: caine-voice artists <list|write> [args]")
+         (println "Uso: caine-voice artists <list|write|prompt|sing|album> [args]")
          1))))
 
 ;;; ---------------------------------------------------------------------------

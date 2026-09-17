@@ -123,7 +123,7 @@
                                 code (or out "") (or err ""))))))))
 
   (registrar-tool "write_lyrics"
-    :descricao "Gera uma letra estruturada (.lyrics) para uma música. Suporta personas de artista (caine, bubble, ragatha, scratch) e estilos variados."
+    :descricao "Gera uma letra estruturada (.lyrics) para uma música. Suporta personas de artista (caine, bubble, ragatha, scratch) e estilos variados. Se a API key NIM estiver configurada, gera via LLM com a persona injetada no system prompt; caso contrário, usa template local."
     :parametros (params-schema
                  (make-json-object
                   "theme" (string-prop "Tema ou assunto central da música")
@@ -139,12 +139,66 @@
                                (format nil "out/lyrics/~a-~a.lyrics"
                                        (or artist "default")
                                        (get-universal-time))))
-                      (bin (caine-voice-bin)))
+                      (bin (caine-voice-bin))
+                      (key (resolve-api-key)))
                  (cond
                    ((null theme) "Erro: 'theme' ausente.")
+                   ((and key (plusp (length key)))
+                    ;; Geração via NIM com a persona injetada
+                    (handler-case
+                        (let* ((sys-prompt
+                                 (if (and artist (plusp (length artist)) bin (probe-file bin))
+                                     (multiple-value-bind (p-out _e _c)
+                                         (uiop:run-program
+                                          (list "/bin/sh" "-c"
+                                                (format nil "exec ~s artists prompt --artist ~s --theme ~s --style ~s"
+                                                        bin artist theme style))
+                                          :output :string :ignore-error-status t)
+                                       (declare (ignore _e _c))
+                                       (if (and p-out (plusp (length p-out)))
+                                           (string-trim '(#\Space #\Newline #\Return) p-out)
+                                           "Você é um compositor musical. Escreva letras no formato canônico .lyrics."))
+                                     "Você é um compositor musical. Escreva letras estruturadas no formato canônico .lyrics com [Verse], [Chorus], etc."))
+                               (cfg (load-config))
+                               (msgs (list
+                                      (make-message "system" sys-prompt)
+                                      (make-message "user"
+                                                    (format nil "Escreva uma canção completa no formato .lyrics sobre o tema '~a' no estilo '~a'."
+                                                            theme style)))))
+                          (setf (gethash "tools_enabled" (config-table cfg)) nil)
+                          (multiple-value-bind (resp finish)
+                              (request-chat cfg msgs)
+                            (declare (ignore finish))
+                            (let ((content (json-get resp "content")))
+                              (if (and content (plusp (length content)))
+                                  (progn
+                                    (ensure-directories-exist out)
+                                    (write-file-string out content)
+                                    (format nil "Letra gerada com sucesso via NIM (~a) em ~a~%~a"
+                                            (or artist "geral") out content))
+                                  "Erro: modelo não retornou conteúdo."))))
+                      (error (e)
+                        ;; Fallback local se a chamada à API falhar
+                        (if (and bin (probe-file bin))
+                            (let ((cmd (if (and artist (plusp (length artist)))
+                                           (format nil "artists write --artist ~s --theme ~s --out ~s"
+                                                   artist theme out)
+                                           (format nil "lyrics write --theme ~s --style ~s --out ~s"
+                                                   theme style out))))
+                              (multiple-value-bind (out-str err-str code)
+                                  (uiop:run-program
+                                   (list "/bin/sh" "-c" (format nil "exec ~s ~a" bin cmd))
+                                   :output :string :error-output :string
+                                   :ignore-error-status t)
+                                (if (zerop code)
+                                    (format nil "Aviso: NIM falhou (~a), fallback local usado.~%Letra salva em ~a~%~a"
+                                            e out (or out-str ""))
+                                    (format nil "Erro no NIM (~a) e no fallback local: ~a" e err-str))))
+                            (format nil "Erro ao chamar NIM: ~a" e)))))
                    ((or (null bin) (not (probe-file bin)))
                     "Erro: caine-voice não encontrado (defina CAINE_VOICE_BIN).")
                    (t
+                    ;; Fallback template local sem API key
                     (let ((cmd (if (and artist (plusp (length artist)))
                                    (format nil "artists write --artist ~s --theme ~s --out ~s"
                                            artist theme out)
@@ -157,7 +211,7 @@
                            :output :string :error-output :string
                            :ignore-error-status t)
                         (if (zerop code)
-                            (format nil "Letra gerada com sucesso em ~a~%~a" out (or out-str ""))
+                            (format nil "Letra gerada via template local em ~a~%~a" out (or out-str ""))
                             (format nil "Erro ao gerar letra (code ~a):~%~a" code (or err-str out-str ""))))))))))
 
   (registrar-tool "edit_lyrics"

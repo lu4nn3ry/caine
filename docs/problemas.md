@@ -1,6 +1,6 @@
 # Problemas Atuais e Status de Resolução
 
-> Última atualização: 2026-09-17 — Sessão de trabalho Caine: correção de bugs, suite de testes e personas de artistas (ADR 006).
+> Última atualização: 2026-09-17 — Sessão de trabalho Caine: pipeline "produtor" ADR 006 concluído, suite de testes expandida e NIM integrado.
 
 ## ✅ Resolvido em Common Lisp
 
@@ -11,7 +11,7 @@
   2. `limpar-u-silencioso`: No início da palavra (`i = 0`), `prev` era `nil`, e `(member prev '(#\q #\g) :test #'char-equal)` quebrava com `The value NIL is not of type CHARACTER` para palavras como *"uma"*. Adicionadas salvaguardas para `prev` e `nxt`.
   3. `gerar-letra`: Acesso a `*estruturas-por-estilo*` usava `cdr` em vez de `second`, atribuindo uma lista de seções à tag de seção.
   4. `*g2p-letras*` e `*g2p-digrafos*`: Tabela de fonemas foi convertida para alist de dotted pairs, evitando erros de tipo com `assoc`.
-- **Validação**: `wsl sbcl --script tests/run-tests.lisp` (13 testes, 47 asserções OK, 0 falhas).
+- **Validação**: `wsl sbcl --script tests/run-tests.lisp` (17 testes, 63 asserções OK, 0 falhas).
 
 ### 2. `lyrics align` sem arquivo MIDI (Destravado via Mock)
 - **Status: RESOLVIDO em pasta `/mock`.**
@@ -29,28 +29,37 @@
   - `tests/framework.lisp`: Macros `deftest`, `assert-true`, `assert-false`, `assert-equal`, `assert-string=`, contador de asserções e relatório.
   - `tests/test-lyrics.lisp`: Testes de remoção de acentos, rimas, silabificação, linter métrico e G2P.
   - `tests/test-midi.lisp`: Testes de escrita/leitura binária de MIDI e alinhamento sílaba→nota.
-  - `tests/test-artists.lisp`: Testes de catálogo, prompts e personas dos artistas.
+  - `tests/test-artists.lisp`: Testes de catálogo, prompts, diretórios de estúdio, alinhamento por artista e pipelines individuais/álbum.
   - `tests/run-tests.lisp`: Executor direto via `sbcl --script tests/run-tests.lisp` (código de saída 0 em sucesso, 1 em falha).
 
-### 5. Personas de Artistas e Tools do NIM ([ADR 006](docs/adr/006-artists-as-singers.md))
-- **Status: IMPLEMENTADO e integrado.**
-- `agent/voice/artists.lisp`: Catálogo dos 4 artistas (`caine`, `bubble`, `ragatha`, `scratch`), integrando suas personas, descrições, registros vocais e estilos.
-- Subcomandos adicionados ao CLI:
-  - `caine-voice artists list`: Lista os artistas com seus registros e descrições.
-  - `caine-voice artists write --artist <id> --theme <tema> --out <f.lyrics>`: Gera a letra com a persona do artista.
-- Registro de tools em `agent/nim/tools.lisp`:
-  - `write_lyrics`: Gera letra estruturada aceitando parâmetro opcional de artista.
-  - `edit_lyrics`: Aplica transformações locais ou instrucionais a uma letra existente.
+### 5. Pipeline "Produtor", Personas de Artistas e Tools do NIM ([ADR 006](docs/adr/006-artists-as-singers.md))
+- **Status: TOTALMENTE IMPLEMENTADO, TESTADO E INTEGRADO.**
+- **Módulo `agent/voice/artists.lisp`**:
+  - Catálogo de personas: **Caine**, **Bubble**, **Ragatha** e **Scratch**.
+  - Funções de estúdio e alinhamento: `artista-outdir`, `artista-voz-ref`, `alinhar-versao-artista`.
+  - Motores de produção: `produzir-versao-artista` e `produzir-album-artistas` (com suporte a engines `:diffsinger`, `:openutau`, `:seedvc` e `:instrumental`, além de parâmetro `--mid` compartilhado).
+  - Limpeza de artefatos: typo `~a p` corrigido e resíduos de rascunho removidos.
+- **Exportações em `agent/voice/package.lisp`**:
+  - `artista-outdir`, `artista-voz-ref`, `alinhar-versao-artista`, `produzir-versao-artista`, `produzir-album-artistas`.
+- **Subcomandos de CLI em `agent/voice/cli.lisp`**:
+  - `caine-voice artists list`: Lista artistas, registros, estilos e descrições.
+  - `caine-voice artists prompt --artist <id>`: Imprime o system prompt com a persona para injeção em LLMs.
+  - `caine-voice artists write --artist <id> --theme <tema> --out <f.lyrics>`: Gera letra estruturada para a persona.
+  - `caine-voice artists sing --artist <id> --melody <audio> --out <wav> [--mid] [--engine ...]`: Produz a versão de uma faixa para um artista.
+  - `caine-voice artists album --melody <audio> [--out <dir>] [--mid] [--engine ...]`: Gera as 4 versões do álbum em batch.
+- **Integração com NVIDIA NIM em `agent/nim/tools.lisp`**:
+  - Tool `write_lyrics` atualizada: quando a API key NIM está presente, injeta o system prompt retornado por `artists prompt` no modelo LLM, salvando a letra com a persona do artista; caso contrário, usa o fallback local de templates.
+  - Tool `edit_lyrics` registrada para transformações instrucionais em letras.
 
 ---
 
 ## ⏳ Próximos Passos (Exigem Decisão / Dependências Externas)
 
 ### 3. "Cantar like Vocaloid" (Síntese Neural de Voz)
-- A infraestrutura de partituras (`.lyrics`, `.mid`, `.txt` DiffSinger, OpenUtau e X-SAMPA) está 100% pronta em Lisp.
+- A infraestrutura de partituras (`.lyrics`, `.mid`, `.ds` DiffSinger, `.uta` OpenUtau e X-SAMPA) está 100% operacional em Lisp puro.
 - A renderização final do áudio cantado dependerá da escolha e instalação do motor neural no sistema (DiffSinger com voicebanks ou OpenUtau, aproveitando a GPU GTX 1650 4GB).
-- Transcrição do áudio real `out/melodia-afinada.mp3` para MIDI dependerá da instalação do ambiente Python (`caine-voice install midi`).
+- Transcrição do áudio real `out/melodia-afinada.mp3` para MIDI dependerá da instalação do ambiente Python (`caine-voice install midi`), mas já pode ser feita ou testada usando arquivos MIDI fornecidos via `--mid`.
 
 ### 6. Governança e Repositório
 - `.env` e arquivos temporários de zero bytes mantidos intactos.
-- `docs/adr/006-artists-as-singers.md` pronto para transição de "Proposto" para "Aceito".
+- `docs/adr/006-artists-as-singers.md` aprovado e marcado como **Aceito**.
