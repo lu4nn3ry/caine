@@ -1,0 +1,21 @@
+# === Saídas/renders gerados (áudio, MIDI, stems, demos) ===
+/out/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# === Sistema / editor ===
+.DS_Store
+*.swp
+*.swo
+*~
+
+# === Modelos/checkpoints baixados ===
+checkpoints/
+*.pth
+*.ckpt
+*.safetensors

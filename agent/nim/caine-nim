@@ -1,0 +1,18 @@
+#!/bin/sh
+# ============================================================================
+# caine-nim — launcher do CLI NVIDIA NIM da IA Caine
+# ============================================================================
+# Uso: ./agent/nim/caine-nim <comando> [args...]
+# Requer: sbcl (e curl para chamadas de rede).
+# ============================================================================
+
+set -eu
+
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+if ! command -v sbcl >/dev/null 2>&1; then
+  echo "erro: sbcl não encontrado no PATH." >&2
+  exit 127
+fi
+
+exec sbcl --noinform --script "$DIR/run.lisp" "$@"

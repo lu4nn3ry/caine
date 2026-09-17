@@ -1,0 +1,18 @@
+#!/bin/sh
+# ============================================================================
+# caine-voice — ferramentas de voz natural + pipeline de música do Caine
+# ============================================================================
+# Uso: ./agent/voice/caine-voice <comando> [args...]
+# Requer: sbcl, ffmpeg e as ferramentas em ~/voice-tools (ver `list`).
+# ============================================================================
+
+set -eu
+
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+if ! command -v sbcl >/dev/null 2>&1; then
+  echo "erro: sbcl não encontrado no PATH." >&2
+  exit 127
+fi
+
+exec sbcl --noinform --script "$DIR/run.lisp" "$@"
