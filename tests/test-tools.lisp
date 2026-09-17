@@ -47,3 +47,4 @@
   (assert-equal 1 (caine.voice::cmd-cover '()))
   ;; artists list deve retornar 0
   (assert-equal 0 (caine.voice::cmd-artists '("list"))))
+
