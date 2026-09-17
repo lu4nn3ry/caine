@@ -178,12 +178,13 @@
                                 &key mid letra (tema "a magia do circo digital")
                                   (engine :instrumental) (steps 30) (semi 0)
                                   (programa 54) (lufs -14.0) (tempo 120)
-                                  (workdir nil))
+                                  (device "cuda") (workdir nil))
   "Gera uma versão de MELODIA com a persona do ARTISTA em OUT.
    - MID: com path explícito usa como está; senão transcreve (mono/pyin).
    - LETRA: com path usa como está; senão gera pela persona do artista.
    - ENGINE: :instrumental (FluidSynth) | :seedvc (voz do perfil) |
      :diffsinger/:openutau (gera entradas de alinhamento; render no tool externo).
+   - DEVICE: 'cuda' (padrão, GPU) ou 'cpu' para o render DiffSinger.
    Retorna OUT."
   (let* ((art (if (perfil-artista-p artista) artista (obter-artista artista))))
     (unless art (error "artista não encontrado: ~a" artista))
@@ -235,7 +236,8 @@
                   (println "== 4/4 renderizando canto via DiffSinger (~a)" (perfil-artista-nome art))
                   (let ((tmp-wav (merge-pathnames (format nil "~a-diffsinger.wav" id) work)))
                     (multiple-value-bind (res code)
-                        (render-diffsinger ds-file tmp-wav :voicebank vb)
+                        (render-diffsinger ds-file tmp-wav :voicebank vb
+                                           :device device)
                       (declare (ignore res))
                       (if (zerop code)
                           (progn
@@ -273,10 +275,11 @@
 (defun produzir-album-artistas (melodia
                                 &key (base "out/rg") (engine :instrumental)
                                   mid (letras nil) (tema "a magia do circo digital")
-                                  (steps 30) (semi 0) (tempo 120))
+                                  (steps 30) (semi 0) (tempo 120) (device "cuda"))
   "Gera a versão de MELODIA para todos os artistas (ADR 006 §album).
    MID: arquivo MIDI compartilhado (opcional; se omitido, transcreve MELODIA).
    LETRAS: hash id→path de .lyrics (opcional; sem ele, gera pela persona).
+   DEVICE: 'cuda' (padrão, GPU) ou 'cpu' para o render DiffSinger.
    Retorna a lista de saídas geradas."
   (let ((saidas '()))
     (dolist (art (listar-artistas))
@@ -287,12 +290,13 @@
         (handler-case
             (progn
               (println "== artista ~a (~a)" (perfil-artista-nome art) id)
-              (push (produzir-versao-artista art melodia out
-                                             :mid mid
-                                             :letra letra :tema tema
-                                             :engine engine :steps steps
-                                             :semi semi :tempo tempo)
-                    saidas))
+(push (produzir-versao-artista art melodia out
+                                               :mid mid
+                                               :letra letra :tema tema
+                                               :engine engine :steps steps
+                                               :semi semi :tempo tempo
+                                               :device device)
+                                     saidas))
           (error (e)
             (println "   erro: ~a" e)))))
     (nreverse saidas)))

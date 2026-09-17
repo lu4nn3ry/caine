@@ -184,19 +184,22 @@
 ;;; ---------------------------------------------------------------------------
 
 (defun diffsinger-bin (&optional tool)
-  "Localiza o executável diffsinger-utau (no venv da ferramenta ou no PATH)."
+  "Localiza o executável diffsinger-utau (no venv da ferramenta ou no PATH).
+   Retorna NIL (sem sinalizar) se não encontrado."
   (let* ((t-obj (or tool (obter-ferramenta "diffsinger")))
          (v-bin (and t-obj (merge-pathnames "bin/diffsinger-utau" (venv-dir t-obj)))))
     (cond
       ((and v-bin (probe-file v-bin))
        (namestring v-bin))
       (t
-       (multiple-value-bind (out err code)
-           (run-cmd '("which" "diffsinger-utau") :capture t)
-         (declare (ignore err))
-         (if (zerop code)
-             (string-trim '(#\Space #\Newline #\Return) out)
-             nil))))))
+       (handler-case
+           (multiple-value-bind (out err code)
+               (run-cmd '("which" "diffsinger-utau") :capture t)
+             (declare (ignore err))
+             (if (zerop code)
+                 (string-trim '(#\Space #\Newline #\Return) out)
+                 nil))
+         (error () nil))))))
 
 (defun render-diffsinger (ds-path out-wav &key voicebank vocoder (speedup 10) (device "cuda"))
   "Renderiza arquivo de partitura .ds para OUT-WAV usando diffsinger-utau.

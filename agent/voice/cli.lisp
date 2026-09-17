@@ -15,7 +15,7 @@ Ferramentas:
 Tarefas:
   caine-voice stems <audio> [outdir] [--two-stems vocals] [--model htdemucs]
   caine-voice convert --source <s> --target <voz> --out <dir> [--tool seed-vc]
-  caine-voice tts --text \"...\" --ref <voz> --out <f.wav> [--prompt-text ..] [--lang pt] [--server]
+  caine-voice tts --text \"...\" --ref <voz> --out <f.wav> [--engine gpt-sovits|cosyvoice] [--prompt-text ..] [--lang pt] [--server]
   caine-voice mix --vocal <f> --inst <f> --out <f> [--lufs -14] [--vocal-db 0] [--inst-db -3]
   caine-voice master --in <f> --out <f> [--lufs -14]
 
@@ -183,14 +183,21 @@ Env: CAINE_VOICE_HOME (padrão ~/voice-tools/) · CAINE_SOUNDFONT")
         (ref (flag-value args "--ref"))
         (out (flag-value args "--out"))
         (prompt (flag-value args "--prompt-text" ""))
-        (lang (flag-value args "--lang" "pt")))
+        (lang (flag-value args "--lang" "pt"))
+        (engine-str (flag-value args "--engine" "gpt-sovits")))
     (unless (and text ref out)
-      (println "Uso: caine-voice tts --text \"...\" --ref <voz> --out <f.wav>")
+      (println "Uso: caine-voice tts --text \"...\" --ref <voz> --out <f.wav> [--engine gpt-sovits|cosyvoice]")
       (return-from cmd-tts 1))
-    (tts-gpt-sovits text ref out
-                    :prompt-text prompt :text-lang lang :prompt-lang lang
-                    :server-p (has-flag args "--server"))
-    0))
+    (cond
+      ((string-equal engine-str "cosyvoice")
+       (multiple-value-bind (_ code _e) (tts-cosyvoice text ref out :prompt-text prompt)
+         (declare (ignore _ _e))
+         (if (zerop code) 0 1)))
+      (t
+       (tts-gpt-sovits text ref out
+                       :prompt-text prompt :text-lang lang :prompt-lang lang
+                       :server-p (has-flag args "--server"))
+       0))))
 
 (defun cmd-mix (args)
   (let ((vocal (flag-value args "--vocal"))
@@ -564,59 +571,63 @@ Env: CAINE_VOICE_HOME (padrão ~/voice-tools/) · CAINE_SOUNDFONT")
                (println "~a" (artista-prompt-letra artist :tema theme :estilo style))
                0)
            (error (e) (println "erro: ~a" e) 1))))
-      ((string= sub "sing")
-       (let ((artist (flag-value rest "--artist"))
-             (melody (flag-value rest "--melody"))
-             (out (flag-value rest "--out"))
-             (mid (flag-value rest "--mid"))
-             (letra (flag-value rest "--letra"))
-             (tema (flag-value rest "--tema" "a magia do circo digital"))
-             (engine-str (flag-value rest "--engine" "instrumental"))
-             (steps (flag-value rest "--steps" "30"))
-             (semi (flag-value rest "--semi" "0"))
-             (tempo (flag-value rest "--tempo" "120")))
-         (unless (and artist melody out)
-           (println "Uso: caine-voice artists sing --artist <id> --melody <audio> --out <wav> [--mid <f.mid>] [--letra <f.lyrics>] [--tema <texto>] [--engine instrumental|seedvc|diffsinger|openutau] [--steps 30] [--semi 0] [--tempo 120]")
-           (return-from cmd-artists 1))
-         (handler-case
-             (let* ((eng (cond ((string-equal engine-str "seedvc") :seedvc)
-                               ((string-equal engine-str "diffsinger") :diffsinger)
-                               ((string-equal engine-str "openutau") :openutau)
-                               (t :instrumental))))
-               (produzir-versao-artista artist melody out
-                                        :mid mid
-                                        :letra letra
-                                        :tema tema
-                                        :engine eng
-                                        :steps (parse-integer steps :junk-allowed t)
+((string= sub "sing")
+        (let ((artist (flag-value rest "--artist"))
+              (melody (flag-value rest "--melody"))
+              (out (flag-value rest "--out"))
+              (mid (flag-value rest "--mid"))
+              (letra (flag-value rest "--letra"))
+              (tema (flag-value rest "--tema" "a magia do circo digital"))
+              (engine-str (flag-value rest "--engine" "instrumental"))
+              (device (flag-value rest "--device" "cuda"))
+              (steps (flag-value rest "--steps" "30"))
+              (semi (flag-value rest "--semi" "0"))
+              (tempo (flag-value rest "--tempo" "120")))
+          (unless (and artist melody out)
+            (println "Uso: caine-voice artists sing --artist <id> --melody <audio> --out <wav> [--mid <f.mid>] [--letra <f.lyrics>] [--tema <texto>] [--engine instrumental|seedvc|diffsinger|openutau] [--device cuda|cpu] [--steps 30] [--semi 0] [--tempo 120]")
+            (return-from cmd-artists 1))
+          (handler-case
+              (let* ((eng (cond ((string-equal engine-str "seedvc") :seedvc)
+                                ((string-equal engine-str "diffsinger") :diffsinger)
+                                ((string-equal engine-str "openutau") :openutau)
+                                (t :instrumental))))
+                (produzir-versao-artista artist melody out
+                                         :mid mid
+                                         :letra letra
+                                         :tema tema
+                                         :engine eng
+                                         :device device
+                                         :steps (parse-integer steps :junk-allowed t)
                                         :semi (parse-integer semi :junk-allowed t)
                                         :tempo (parse-integer tempo :junk-allowed t))
                (println "versão de ~a gerada em ~a" artist out)
                0)
            (error (e) (println "erro: ~a" e) 1))))
-      ((string= sub "album")
-       (let ((melody (flag-value rest "--melody"))
-             (base (flag-value rest "--out" "out/rg"))
-             (mid (flag-value rest "--mid"))
-             (engine-str (flag-value rest "--engine" "instrumental"))
-             (tema (flag-value rest "--tema" "a magia do circo digital"))
-             (steps (flag-value rest "--steps" "30"))
-             (semi (flag-value rest "--semi" "0"))
-             (tempo (flag-value rest "--tempo" "120")))
-         (unless melody
-           (println "Uso: caine-voice artists album --melody <audio> [--out <dir>] [--mid <f.mid>] [--engine instrumental|seedvc|diffsinger|openutau] [--tema <texto>] [--steps 30] [--semi 0] [--tempo 120]")
-           (return-from cmd-artists 1))
-         (handler-case
-             (let* ((eng (cond ((string-equal engine-str "seedvc") :seedvc)
-                               ((string-equal engine-str "diffsinger") :diffsinger)
-                               ((string-equal engine-str "openutau") :openutau)
-                               (t :instrumental)))
-                    (saidas (produzir-album-artistas melody
-                                                     :base base
-                                                     :mid mid
-                                                     :engine eng
-                                                     :tema tema
-                                                     :steps (parse-integer steps :junk-allowed t)
+((string= sub "album")
+        (let ((melody (flag-value rest "--melody"))
+              (base (flag-value rest "--out" "out/rg"))
+              (mid (flag-value rest "--mid"))
+              (engine-str (flag-value rest "--engine" "instrumental"))
+              (device (flag-value rest "--device" "cuda"))
+              (tema (flag-value rest "--tema" "a magia do circo digital"))
+              (steps (flag-value rest "--steps" "30"))
+              (semi (flag-value rest "--semi" "0"))
+              (tempo (flag-value rest "--tempo" "120")))
+          (unless melody
+            (println "Uso: caine-voice artists album --melody <audio> [--out <dir>] [--mid <f.mid>] [--engine instrumental|seedvc|diffsinger|openutau] [--device cuda|cpu] [--tema <texto>] [--steps 30] [--semi 0] [--tempo 120]")
+            (return-from cmd-artists 1))
+          (handler-case
+              (let* ((eng (cond ((string-equal engine-str "seedvc") :seedvc)
+                                ((string-equal engine-str "diffsinger") :diffsinger)
+                                ((string-equal engine-str "openutau") :openutau)
+                                (t :instrumental)))
+                     (saidas (produzir-album-artistas melody
+                                                      :base base
+                                                      :mid mid
+                                                      :engine eng
+                                                      :device device
+                                                      :tema tema
+                                                      :steps (parse-integer steps :junk-allowed t)
                                                      :semi (parse-integer semi :junk-allowed t)
                                                      :tempo (parse-integer tempo :junk-allowed t))))
                (println "álbum produzido: ~d versão(ões) em ~a" (length saidas) base)
